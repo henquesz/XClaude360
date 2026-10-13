@@ -1,1 +1,91 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"/><link rel="icon" href="/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="A PlayStation2 emulator for web browsers"/><link rel="apple-touch-icon" href="/logo192.png"/><link rel="manifest" href="/manifest.json"/><title>Play!.js</title><script defer="defer" src="/static/js/main.0a0edad5.js"></script><link href="/static/css/main.5a525eca.css" rel="stylesheet"></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div class="global-row"><div class="global-column"><div><canvas id="outputCanvas" width="640" height="480" tabindex="-1"/></div><div id="root"></div></div><div class="global-column"><p></p><h1>Play!.js</h1><h3>What is this?</h3><p>This is a port of Play!, a PlayStation2 emulator, running in a web browser. This is only an experiment and is not meant to play all games that are currently supported by the emulator on desktop and mobile.</p><p>Supported file types: ISO, CSO, CHD, ISZ, BIN, ELF.</p><p>No BIOS file required.</p><p>Recent version of Chrome or Firefox required for a smoother experience.</p><p></p><p></p><h3>Links</h3><div><a href="https://purei.org" target="blank">Official Website</a></div><div><a href="https://github.com/jpd002/Play-" target="blank">Source Code</a></div><div><a href="https://github.com/jpd002/Play-Compatibility/issues" target="blank">Compatibility List</a></div><p></p><p></p><h3>Controls</h3><div class="controls-row"><div class="controls-column"><table><tr><th>PS2 Controller</th><th>Keyboard</th></tr><tr><td>D. Pad</td><td>Arrow Keys</td></tr><tr><td>Left Analog Stick</td><td>F, H, T, G</td></tr><tr><td>Right Analog Stick</td><td>J, L, I, K</td></tr><tr><td>Square</td><td>A</td></tr><tr><td>Cross</td><td>Z</td></tr><tr><td>Triangle</td><td>S</td></tr><tr><td>Circle</td><td>X</td></tr></table></div><div class="controls-column"><table><tr><th>PS2 Controller</th><th>Keyboard</th></tr><tr><td>Start</td><td>Return</td></tr><tr><td>Select</td><td>Backspace</td></tr><tr><td>L1</td><td>1</td></tr><tr><td>L2</td><td>2</td></tr><tr><td>L3</td><td>3</td></tr><tr><td>R1</td><td>8</td></tr><tr><td>R2</td><td>9</td></tr><tr><td>R3</td><td>0</td></tr></table></div></div><p></p></div></div></body></html>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>NFS Underground 2</title>
+  <link rel="modulepreload" href="Play.js?v=9a244fe702">
+  <link rel="preload" href="Play.wasm?v=9a244fe702" as="fetch" type="application/wasm" crossorigin>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #000; color: #e6e6e6; overflow: hidden;
+      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    button { font: inherit; color: #eee; background: rgba(30,30,34,.85); border: 1px solid #3a3a42;
+      border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+    button:hover { background: rgba(50,50,58,.95); }
+
+    #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+    #screen { display: block; width: min(100vw, calc(100vh * 4 / 3)); height: auto; aspect-ratio: 4 / 3; background: #000; }
+    body.idle, body.idle * { cursor: none; }
+
+    #fps { position: fixed; top: 6px; left: 8px; font: 12px/1 ui-monospace, Consolas, monospace; color: #8f8;
+      text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; }
+    #toolbar { position: fixed; top: 6px; right: 6px; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+      opacity: 0; transition: opacity .2s; }
+    body.ui #toolbar { opacity: 1; }
+    #toolbar[hidden] { display: none; }
+
+    #help { position: fixed; top: 44px; right: 6px; background: rgba(16,16,20,.95); border: 1px solid #333;
+      border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+    #help table { border-collapse: collapse; }
+    #help td { padding: 2px 10px 2px 0; }
+    #help td:last-child { color: #9cf; font-family: ui-monospace, Consolas, monospace; }
+
+    #setup { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 18px; padding: 16px; text-align: center; background: #0a0a0c; }
+    #setup[hidden] { display: none; }
+    #setup h1 { margin: 0; font-size: 22px; font-weight: 600; }
+    #status { color: #aaa; min-height: 1.4em; max-width: 560px; }
+    #status.error { color: #ff7b7b; }
+    #drop { width: 100%; max-width: 520px; padding: 36px 24px; border: 2px dashed #444; border-radius: 12px; cursor: pointer; }
+    #drop:hover, #drop.over { border-color: #6cf; background: #0c1820; }
+    #drop[hidden] { display: none; }
+    #drop small { display: block; margin-top: 8px; color: #888; }
+    #progress { width: 100%; max-width: 520px; height: 8px; accent-color: #6cf; }
+    #progress[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <div id="stage"><canvas id="screen" width="640" height="480"></canvas></div>
+  <div id="fps"></div>
+
+  <div id="toolbar" hidden>
+    <button id="btn-fullscreen" title="Tela cheia (duplo clique na tela)">Tela cheia</button>
+    <button id="btn-help">Controles</button>
+    <button id="btn-export">Exportar save</button>
+    <button id="btn-import">Importar save</button>
+    <button id="btn-forget" title="Apaga a ISO guardada no navegador">Trocar ISO</button>
+    <input id="import-file" type="file" accept=".json" hidden>
+  </div>
+
+  <div id="help" hidden>
+    <table>
+      <tr><td>Direcional</td><td>Setas</td></tr>
+      <tr><td>Analógico esquerdo</td><td>F H T G</td></tr>
+      <tr><td>Analógico direito</td><td>J L I K</td></tr>
+      <tr><td>✕ Cross</td><td>Z</td></tr>
+      <tr><td>○ Circle</td><td>X</td></tr>
+      <tr><td>□ Square</td><td>A</td></tr>
+      <tr><td>△ Triangle</td><td>S</td></tr>
+      <tr><td>Start / Select</td><td>Enter / Backspace</td></tr>
+      <tr><td>L1 L2 L3</td><td>1 2 3</td></tr>
+      <tr><td>R1 R2 R3</td><td>8 9 0</td></tr>
+    </table>
+  </div>
+
+  <div id="setup">
+    <h1>Need for Speed: Underground 2</h1>
+    <div id="status">Carregando…</div>
+    <label id="drop" hidden>
+      <strong>Arraste a ISO aqui</strong> ou clique para escolher
+      <small>Só na primeira vez: ela fica guardada no navegador e o jogo abre direto nas próximas visitas.</small>
+      <input id="picker" type="file" accept=".iso,.chd,.cso,.isz,.bin" hidden>
+    </label>
+    <progress id="progress" max="1" value="0" hidden></progress>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
