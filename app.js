@@ -3,9 +3,10 @@ const MEMCARD_DIR = DATA_DIR + '/Play Data Files/vfs/mc0';
 const IMAGE_FILE = 'nfsu2.img';
 const META_KEY = 'nfsu2.image';
 const FORGET_KEY = 'nfsu2.forget';
+const STRETCH_KEY = 'nfsu2.stretch';
 const IMPORT_CHUNK = 32 * 1024 * 1024;
 // Bumped by build.ps1 on every emulator build so browsers never mix an old Play.wasm with a new Play.js.
-const BUILD = '9a244fe702';
+const BUILD = 'ffde8e04ba';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -262,9 +263,32 @@ async function importSaves(module, file) {
 // ---------------------------------------------------------------------------
 // In-game UI
 
+function enterFullscreen() {
+  if (document.fullscreenElement) return;
+  document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+}
+
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  else enterFullscreen();
+}
+
+// Browsers only allow fullscreen from a user gesture, so go fullscreen on the first key or click.
+function fullscreenOnFirstInput() {
+  const handler = (event) => {
+    if (event.type === 'keydown' && event.key === 'Escape') return;
+    window.removeEventListener('keydown', handler, true);
+    window.removeEventListener('pointerdown', handler, true);
+    if (event.target && event.target.closest && event.target.closest('#toolbar')) return;
+    enterFullscreen();
+  };
+  window.addEventListener('keydown', handler, true);
+  window.addEventListener('pointerdown', handler, true);
+}
+
+function setStretch(enabled) {
+  document.body.classList.toggle('stretch', enabled);
+  try { localStorage.setItem(STRETCH_KEY, enabled ? '1' : ''); } catch {}
 }
 
 function setupToolbar(module) {
@@ -284,6 +308,7 @@ function setupToolbar(module) {
   wake();
 
   $('btn-fullscreen').onclick = toggleFullscreen;
+  $('btn-stretch').onclick = () => setStretch(!document.body.classList.contains('stretch'));
   ui.screen.ondblclick = toggleFullscreen;
   $('btn-help').onclick = () => { ui.help.hidden = !ui.help.hidden; wake(); };
   $('btn-export').onclick = () => exportSaves(module);
@@ -329,6 +354,8 @@ async function main() {
   await startDiscWorker(module, image.source);
 
   ui.setup.hidden = true;
+  setStretch(localStorage.getItem(STRETCH_KEY) === '1');
+  fullscreenOnFirstInput();
   module.bootDiscImage(image.bootName);
   startStats(module);
   startSaveSync(module);

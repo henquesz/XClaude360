@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#000000">
   <title>NFS Underground 2</title>
-  <link rel="modulepreload" href="Play.js?v=9a244fe702">
-  <link rel="preload" href="Play.wasm?v=9a244fe702" as="fetch" type="application/wasm" crossorigin>
+  <link rel="modulepreload" href="Play.js?v=ffde8e04ba">
+  <link rel="preload" href="Play.wasm?v=ffde8e04ba" as="fetch" type="application/wasm" crossorigin>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -18,6 +18,7 @@
 
     #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
     #screen { display: block; width: min(100vw, calc(100vh * 4 / 3)); height: auto; aspect-ratio: 4 / 3; background: #000; }
+    body.stretch #screen { width: 100vw; height: 100vh; aspect-ratio: auto; }
     body.idle, body.idle * { cursor: none; }
 
     #fps { position: fixed; top: 6px; left: 8px; font: 12px/1 ui-monospace, Consolas, monospace; color: #8f8;
@@ -53,6 +54,7 @@
 
   <div id="toolbar" hidden>
     <button id="btn-fullscreen" title="Tela cheia (duplo clique na tela)">Tela cheia</button>
+    <button id="btn-stretch" title="Esticar a imagem para preencher a tela">16:9</button>
     <button id="btn-help">Controles</button>
     <button id="btn-export">Exportar save</button>
     <button id="btn-import">Importar save</button>
