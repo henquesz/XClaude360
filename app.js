@@ -6,7 +6,7 @@ const FORGET_KEY = 'nfsu2.forget';
 const STRETCH_KEY = 'nfsu2.stretch';
 const IMPORT_CHUNK = 32 * 1024 * 1024;
 // Bumped by build.ps1 on every emulator build so browsers never mix an old Play.wasm with a new Play.js.
-const BUILD = 'ffde8e04ba';
+const BUILD = '7f1cd4758a';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -59,6 +59,7 @@ async function createEmulator() {
   try { FS.mkdir('/work'); } catch {}
 
   module.ccall('initVm', '', [], []);
+  window.nfsu2 = module; // handy from the devtools console
   return module;
 }
 
