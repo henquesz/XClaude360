@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#000000">
   <title>NFS Underground 2</title>
-  <link rel="modulepreload" href="Play.js?v=30078531ca">
-  <link rel="preload" href="Play.wasm?v=30078531ca" as="fetch" type="application/wasm" crossorigin>
+  <link rel="modulepreload" href="Play.js?v=5d3527a58f">
+  <link rel="preload" href="Play.wasm?v=5d3527a58f" as="fetch" type="application/wasm" crossorigin>
   <link rel="stylesheet" href="dash.css">
   <style>
     :root { color-scheme: dark; }
@@ -18,6 +18,10 @@
     button:hover { background: rgba(50,50,58,.95); }
 
     #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+    #stage[hidden] { display: none; }
+    #ps1-stage { position: fixed; inset: 0; background: #000; }
+    #ps1-stage[hidden] { display: none; }
+    #ps1-player { width: 100%; height: 100%; }
     #screen { display: block; width: min(100vw, calc(100vh * 4 / 3)); height: auto; aspect-ratio: 4 / 3; background: #000; }
     body.stretch #screen { width: 100vw; height: 100vh; aspect-ratio: auto; }
     body.idle, body.idle * { cursor: none; }
@@ -39,6 +43,7 @@
 </head>
 <body>
   <div id="stage"><canvas id="screen" width="640" height="480"></canvas></div>
+  <div id="ps1-stage" hidden><div id="ps1-player"></div></div>
   <div id="fps"></div>
 
   <div id="toolbar" hidden>
@@ -70,6 +75,7 @@
   <div id="dash">
     <nav id="dash-nav" aria-label="Seções">
       <button class="tab is-active" data-pane="inicio">início</button>
+      <button class="tab" data-pane="ps1">playstation 1</button>
       <button class="tab" data-pane="controles">controles</button>
       <button class="tab" data-pane="sobre">sobre</button>
     </nav>
@@ -81,7 +87,7 @@
       </div>
 
       <section class="pane is-active" data-pane="inicio">
-        <div id="tiles">
+        <div class="tiles" id="tiles">
           <button class="tile" id="t-help" style="grid-area: 1 / 1">
             <svg viewBox="0 0 24 24"><path d="M6 7h12a4 4 0 0 1 4 4v3a3 3 0 0 1-3 3 3 3 0 0 1-2.4-1.2L15.5 14h-7l-1.1 1.8A3 3 0 0 1 5 17a3 3 0 0 1-3-3v-3a4 4 0 0 1 4-4Zm1 3v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10H7Zm9.5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm2 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>
             <span>Controles</span>
@@ -123,9 +129,59 @@
             <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 4h2l-1.5-1.5L9 8l3 3-3 3-1.5-1.5L9 13H7v-2Zm8 0h2v2h-2l1.5 1.5L15 16l-3-3 3-3 1.5 1.5L15 11Z"/></svg>
             <span id="stretch-label">Esticar 16:9</span>
           </button>
-          <button class="tile" id="t-forget" style="grid-area: 3 / 5">
+          <button class="tile tile-ps1" id="t-ps1" style="grid-area: 3 / 5">
+            <svg viewBox="0 0 24 24"><path d="M7 4h4.6c3.6 0 6.4 1.6 6.4 4.9 0 2.6-1.8 4.3-4.6 4.3-.5 0-1 0-1.4-.1v6.9H9.6V6.7c0-.4.3-.6.6-.6h.3c.4 0 .6.2.6.6v4.7c.3.1.6.1 1 .1 1.3 0 2.2-.8 2.2-2.4 0-2-1.3-3-3.3-3H7V4Zm-4.3 11.8c0-1.3 1.5-2 4.1-2.5v1.8c-1 .2-1.5.5-1.5.9 0 .5.8.7 2.4.7l-.1 1.6c-3.1-.1-4.9-.9-4.9-2.5Zm16.4-1.4c1.8.5 2.9 1.2 2.9 2.4 0 1.5-2 2.3-4.9 2.4v-1.6c1.3 0 2.1-.3 2.1-.8 0-.4-.6-.7-1.6-.9l1.5-1.5Z"/></svg>
+            <span>PlayStation 1</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="pane" data-pane="ps1">
+        <div class="tiles" id="tiles-ps1">
+          <button class="tile" id="t-ps1-back" style="grid-area: 1 / 1">
+            <svg viewBox="0 0 24 24"><path d="M11 5l-7 7 7 7 1.4-1.4L7.8 13H20v-2H7.8l4.6-4.6L11 5Z"/></svg>
+            <span>Início</span>
+          </button>
+          <button class="tile tile-bios" id="t-ps1-bios" style="grid-area: 2 / 1">
+            <svg viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Zm1 2v14h10V5H7Zm2 2h6v4H9V7Zm0 6h6v2H9v-2Zm0 3h4v2H9v-2Z"/></svg>
+            <span id="ps1-bios-label">BIOS</span>
+          </button>
+
+          <button class="tile tile-hero tile-hero-ps1" id="t-ps1-play" style="grid-area: 1 / 2 / 3 / 4">
+            <div class="hero-art">
+              <svg class="hero-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l11-6.5a1 1 0 0 0 0-1.8l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>
+            </div>
+            <span class="hero-title">Jogar</span>
+            <small class="hero-sub" id="ps1-play-sub">PlayStation 1</small>
+          </button>
+
+          <button class="tile tile-iso" id="t-ps1-iso" style="grid-area: 1 / 4 / 3 / 6">
+            <svg class="iso-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></svg>
+            <span class="iso-title">Jogo de PS1</span>
+            <span class="iso-main" id="ps1-iso-main">Procurando jogo guardado…</span>
+            <span class="iso-hint" id="ps1-iso-hint"></span>
+            <progress id="ps1-progress" max="1" value="0" hidden></progress>
+          </button>
+
+          <button class="tile" id="t-ps1-fullscreen" style="grid-area: 3 / 1">
+            <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z"/></svg>
+            <span>Tela cheia</span>
+          </button>
+          <button class="tile" id="t-ps1-help" style="grid-area: 3 / 2">
+            <svg viewBox="0 0 24 24"><path d="M6 7h12a4 4 0 0 1 4 4v3a3 3 0 0 1-3 3 3 3 0 0 1-2.4-1.2L15.5 14h-7l-1.1 1.8A3 3 0 0 1 5 17a3 3 0 0 1-3-3v-3a4 4 0 0 1 4-4Zm1 3v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10H7Zm9.5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm2 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>
+            <span>Controles</span>
+          </button>
+          <button class="tile" id="t-ps1-forget" style="grid-area: 3 / 3">
             <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.4 5H17v2h6V5h-2v2.3A10 10 0 0 0 2.1 11h2A8 8 0 0 1 12 4Zm7.9 9A8 8 0 0 1 4.6 15H7v-2H1v6h2v-2.3A10 10 0 0 0 21.9 13h-2Z"/></svg>
-            <span>Trocar ISO</span>
+            <span>Trocar jogo</span>
+          </button>
+          <button class="tile" id="t-ps1-forget-bios" style="grid-area: 3 / 4">
+            <svg viewBox="0 0 24 24"><path d="M6 7h12v2H6V7Zm1 3h10l-1 10H8L7 10Zm2-6h6v2H9V4Z"/></svg>
+            <span>Apagar BIOS</span>
+          </button>
+          <button class="tile" id="t-ps1-about" style="grid-area: 3 / 5">
+            <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-1 6h2v7h-2v-7Zm0-3h2v2h-2V7Z"/></svg>
+            <span>Sobre</span>
           </button>
         </div>
       </section>
@@ -144,7 +200,8 @@
           <tr><td>L1 L2 L3</td><td>1 2 3</td></tr>
           <tr><td>R1 R2 R3</td><td>8 9 0</td></tr>
         </table>
-        <p class="pane-note">No jogo, mexa o mouse para ver a barra com tela cheia, saves e esta tabela.</p>
+        <p class="pane-note">Os mesmos atalhos valem para PS1 e PS2. No PS2, mexa o mouse para ver a barra com tela cheia e saves.
+          No PS1, a barra do emulador (embaixo da tela) tem save state, tela cheia, configurações e o botão de sair.</p>
       </section>
 
       <section class="pane" data-pane="sobre">
@@ -152,6 +209,9 @@
         <p>Need for Speed: Underground 2 (PlayStation 2) rodando direto no navegador com o emulador
           <strong>Play!</strong> compilado para WebAssembly.</p>
         <p>A ISO fica guardada só no seu navegador e os saves do memory card também. Nada é enviado para servidor.</p>
+        <p>Jogos de PlayStation 1 rodam com o <strong>PCSX-ReARMed</strong> (core libretro, via EmulatorJS), também em
+          WebAssembly com threads. Precisa do BIOS do console (um arquivo de 512 KB, como scph5501.bin) e do jogo em CHD, PBP,
+          BIN/IMG de faixa única ou um ZIP com BIN+CUE.</p>
         <p>Funciona melhor no Chrome ou Edge no PC, com aceleração de hardware ligada e sem outras abas pesadas abertas.</p>
       </section>
     </div>
@@ -163,7 +223,7 @@
       <span id="status">Carregando…</span>
     </footer>
 
-    <input id="picker" type="file" accept=".iso,.chd,.cso,.isz,.bin" hidden>
+    <input id="picker" type="file" hidden>
   </div>
 
   <script type="module" src="app.js"></script>

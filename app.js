@@ -6,7 +6,7 @@ const FORGET_KEY = 'nfsu2.forget';
 const STRETCH_KEY = 'nfsu2.stretch';
 const IMPORT_CHUNK = 32 * 1024 * 1024;
 // Bumped by build.ps1 on every emulator build so browsers never mix an old Play.wasm with a new Play.js.
-const BUILD = '30078531ca';
+const BUILD = '5d3527a58f';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
