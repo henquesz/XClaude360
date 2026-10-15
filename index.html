@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#000000">
   <title>NFS Underground 2</title>
-  <link rel="modulepreload" href="Play.js?v=7f1cd4758a">
-  <link rel="preload" href="Play.wasm?v=7f1cd4758a" as="fetch" type="application/wasm" crossorigin>
+  <link rel="modulepreload" href="Play.js?v=64a0346909">
+  <link rel="preload" href="Play.wasm?v=64a0346909" as="fetch" type="application/wasm" crossorigin>
+  <link rel="stylesheet" href="dash.css">
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; background: #000; color: #e6e6e6; overflow: hidden;
-      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; }
     button { font: inherit; color: #eee; background: rgba(30,30,34,.85); border: 1px solid #3a3a42;
       border-radius: 6px; padding: 6px 10px; cursor: pointer; }
     button:hover { background: rgba(50,50,58,.95); }
@@ -30,22 +31,10 @@
 
     #help { position: fixed; top: 44px; right: 6px; background: rgba(16,16,20,.95); border: 1px solid #333;
       border-radius: 8px; padding: 10px 14px; font-size: 13px; }
-    #help table { border-collapse: collapse; }
-    #help td { padding: 2px 10px 2px 0; }
-    #help td:last-child { color: #9cf; font-family: ui-monospace, Consolas, monospace; }
-
-    #setup { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 18px; padding: 16px; text-align: center; background: #0a0a0c; }
-    #setup[hidden] { display: none; }
-    #setup h1 { margin: 0; font-size: 22px; font-weight: 600; }
-    #status { color: #aaa; min-height: 1.4em; max-width: 560px; }
-    #status.error { color: #ff7b7b; }
-    #drop { width: 100%; max-width: 520px; padding: 36px 24px; border: 2px dashed #444; border-radius: 12px; cursor: pointer; }
-    #drop:hover, #drop.over { border-color: #6cf; background: #0c1820; }
-    #drop[hidden] { display: none; }
-    #drop small { display: block; margin-top: 8px; color: #888; }
-    #progress { width: 100%; max-width: 520px; height: 8px; accent-color: #6cf; }
-    #progress[hidden] { display: none; }
+    #help[hidden] { display: none; }
+    .keys { border-collapse: collapse; }
+    .keys td { padding: 2px 10px 2px 0; }
+    .keys td:last-child { color: #9cf; font-family: ui-monospace, Consolas, monospace; }
   </style>
 </head>
 <body>
@@ -63,7 +52,7 @@
   </div>
 
   <div id="help" hidden>
-    <table>
+    <table class="keys">
       <tr><td>Direcional</td><td>Setas</td></tr>
       <tr><td>Analógico esquerdo</td><td>F H T G</td></tr>
       <tr><td>Analógico direito</td><td>J L I K</td></tr>
@@ -77,15 +66,104 @@
     </table>
   </div>
 
-  <div id="setup">
-    <h1>Need for Speed: Underground 2</h1>
-    <div id="status">Carregando…</div>
-    <label id="drop" hidden>
-      <strong>Arraste a ISO aqui</strong> ou clique para escolher
-      <small>Só na primeira vez: ela fica guardada no navegador e o jogo abre direto nas próximas visitas.</small>
-      <input id="picker" type="file" accept=".iso,.chd,.cso,.isz,.bin" hidden>
-    </label>
-    <progress id="progress" max="1" value="0" hidden></progress>
+  <!-- Dashboard (menu inicial no estilo Xbox 360) -->
+  <div id="dash">
+    <nav id="dash-nav" aria-label="Seções">
+      <button class="tab is-active" data-pane="inicio">início</button>
+      <button class="tab" data-pane="controles">controles</button>
+      <button class="tab" data-pane="sobre">sobre</button>
+    </nav>
+
+    <div id="dash-body">
+      <div id="avatar-wrap" title="Clique para acenar">
+        <canvas id="avatar" aria-label="Avatar"></canvas>
+        <div id="avatar-tag"><span class="dot"></span>Claude</div>
+      </div>
+
+      <section class="pane is-active" data-pane="inicio">
+        <div id="tiles">
+          <button class="tile" id="t-help" style="grid-area: 1 / 1">
+            <svg viewBox="0 0 24 24"><path d="M6 7h12a4 4 0 0 1 4 4v3a3 3 0 0 1-3 3 3 3 0 0 1-2.4-1.2L15.5 14h-7l-1.1 1.8A3 3 0 0 1 5 17a3 3 0 0 1-3-3v-3a4 4 0 0 1 4-4Zm1 3v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10H7Zm9.5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm2 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>
+            <span>Controles</span>
+          </button>
+          <button class="tile" id="t-about" style="grid-area: 2 / 1">
+            <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-1 6h2v7h-2v-7Zm0-3h2v2h-2V7Z"/></svg>
+            <span>Sobre</span>
+          </button>
+
+          <button class="tile tile-hero" id="t-play" style="grid-area: 1 / 2 / 3 / 4">
+            <div class="hero-art">
+              <svg class="hero-play" viewBox="0 0 24 24"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l11-6.5a1 1 0 0 0 0-1.8l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>
+            </div>
+            <span class="hero-title">Jogar</span>
+            <small class="hero-sub" id="play-sub">Need for Speed: Underground 2</small>
+          </button>
+
+          <button class="tile tile-iso" id="t-iso" style="grid-area: 1 / 4 / 3 / 6">
+            <svg class="iso-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z"/></svg>
+            <span class="iso-title">Imagem do jogo</span>
+            <span class="iso-main" id="iso-main">Procurando ISO guardada…</span>
+            <span class="iso-hint" id="iso-hint"></span>
+            <progress id="progress" max="1" value="0" hidden></progress>
+          </button>
+
+          <button class="tile" id="t-export" style="grid-area: 3 / 1">
+            <svg viewBox="0 0 24 24"><path d="M12 3a1 1 0 0 1 1 1v9.6l2.3-2.3 1.4 1.4-4.7 4.7-4.7-4.7 1.4-1.4L11 13.6V4a1 1 0 0 1 1-1ZM4 15h2v3h12v-3h2v5H4v-5Z"/></svg>
+            <span>Exportar save</span>
+          </button>
+          <button class="tile" id="t-import" style="grid-area: 3 / 2">
+            <svg viewBox="0 0 24 24"><path d="M12 18a1 1 0 0 1-1-1V7.4L8.7 9.7 7.3 8.3 12 3.6l4.7 4.7-1.4 1.4L13 7.4V17a1 1 0 0 1-1 1ZM4 15h2v3h12v-3h2v5H4v-5Z"/></svg>
+            <span>Importar save</span>
+          </button>
+          <button class="tile" id="t-fullscreen" style="grid-area: 3 / 3">
+            <svg viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z"/></svg>
+            <span>Tela cheia</span>
+          </button>
+          <button class="tile" id="t-stretch" style="grid-area: 3 / 4">
+            <svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 4h2l-1.5-1.5L9 8l3 3-3 3-1.5-1.5L9 13H7v-2Zm8 0h2v2h-2l1.5 1.5L15 16l-3-3 3-3 1.5 1.5L15 11Z"/></svg>
+            <span id="stretch-label">Esticar 16:9</span>
+          </button>
+          <button class="tile" id="t-forget" style="grid-area: 3 / 5">
+            <svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.4 5H17v2h6V5h-2v2.3A10 10 0 0 0 2.1 11h2A8 8 0 0 1 12 4Zm7.9 9A8 8 0 0 1 4.6 15H7v-2H1v6h2v-2.3A10 10 0 0 0 21.9 13h-2Z"/></svg>
+            <span>Trocar ISO</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="pane" data-pane="controles">
+        <h2>Controles</h2>
+        <table class="keys">
+          <tr><td>Direcional</td><td>Setas</td></tr>
+          <tr><td>Analógico esquerdo</td><td>F H T G</td></tr>
+          <tr><td>Analógico direito</td><td>J L I K</td></tr>
+          <tr><td>✕ Cross</td><td>Z</td></tr>
+          <tr><td>○ Circle</td><td>X</td></tr>
+          <tr><td>□ Square</td><td>A</td></tr>
+          <tr><td>△ Triangle</td><td>S</td></tr>
+          <tr><td>Start / Select</td><td>Enter / Backspace</td></tr>
+          <tr><td>L1 L2 L3</td><td>1 2 3</td></tr>
+          <tr><td>R1 R2 R3</td><td>8 9 0</td></tr>
+        </table>
+        <p class="pane-note">No jogo, mexa o mouse para ver a barra com tela cheia, saves e esta tabela.</p>
+      </section>
+
+      <section class="pane" data-pane="sobre">
+        <h2>Sobre</h2>
+        <p>Need for Speed: Underground 2 (PlayStation 2) rodando direto no navegador com o emulador
+          <strong>Play!</strong> compilado para WebAssembly.</p>
+        <p>A ISO fica guardada só no seu navegador e os saves do memory card também. Nada é enviado para servidor.</p>
+        <p>Funciona melhor no Chrome ou Edge no PC, com aceleração de hardware ligada e sem outras abas pesadas abertas.</p>
+      </section>
+    </div>
+
+    <footer id="dash-foot">
+      <span class="hint"><kbd class="abtn">A</kbd> Selecionar</span>
+      <span class="hint"><kbd class="bbtn">B</kbd> Voltar</span>
+      <span class="hint"><kbd>↑ ↓ ← →</kbd> Navegar</span>
+      <span id="status">Carregando…</span>
+    </footer>
+
+    <input id="picker" type="file" accept=".iso,.chd,.cso,.isz,.bin" hidden>
   </div>
 
   <script type="module" src="app.js"></script>
