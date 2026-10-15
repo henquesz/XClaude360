@@ -15,13 +15,57 @@ let client = null;
 let user = null;
 let profile = null;
 let appStarted = false;
+let background = null;
+
+// Mesmo fundo animado do dashboard, sobre quase preto
+const BACKGROUND = {
+  colors: ['#071a0a', '#0f6b1a', '#1aa41a', '#8ef07a'],
+  shape: 'rise',
+  characters: ' .:-=+x*#%@',
+  cellSize: 15,
+  density: 0.7,
+  glyphOpacity: 0.75,
+  gradientOpacity: 0.45,
+  glow: 0.35,
+  flicker: 0.15,
+  softness: 0.6,
+  flow: 0.45,
+  speed: 0.6,
+  grain: 0.05,
+  scrambleRadius: 0.08,
+  clickEffect: 'wave',
+  dpr: 1.5,
+};
 
 // ---------------------------------------------------------------------------
 // Telas
 
-function show(html) {
+function show(html, { wide = false } = {}) {
   root.hidden = false;
-  root.innerHTML = `<div class="auth-panel">${html}</div>`;
+  root.classList.toggle('is-overlay', appStarted);
+  let content = document.getElementById('auth-content');
+  if (!content) {
+    root.innerHTML = '<div id="auth-bg" aria-hidden="true"></div><div id="auth-content"></div>';
+    content = document.getElementById('auth-content');
+    // Só antes de entrar: com o site aberto (editar perfil) o dashboard ou um jogo já usam a GPU
+    if (!appStarted) startBackground();
+  }
+  content.innerHTML = `<div class="auth-card${wide ? ' is-wide' : ''}">${html}</div>`;
+}
+
+function startBackground() {
+  import('./gradient-ascii.js')
+    .then(({ createGradientAscii }) => {
+      const container = document.getElementById('auth-bg');
+      if (!container || appStarted || background) return;
+      background = createGradientAscii(container, BACKGROUND);
+    })
+    .catch((err) => console.warn('auth: fundo animado indisponível', err));
+}
+
+function stopBackground() {
+  if (background) background.stop();
+  background = null;
 }
 
 function showLoading(text = 'Conectando…') {
@@ -34,23 +78,29 @@ function showLogin({ mode = 'signin', message = '', isError = true } = {}) {
   let savedEmail = '';
   try { savedEmail = localStorage.getItem(EMAIL_KEY) || ''; } catch {}
   show(`
-    <h1 class="auth-title">${signup ? 'criar conta' : 'entrar'}</h1>
+    <div class="auth-brand"><span class="auth-orb" aria-hidden="true"></span><span>PS2 · PS1 no navegador</span></div>
+    <nav class="auth-tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="${!signup}" class="${signup ? '' : 'is-active'}" ${signup ? 'id="auth-switch"' : ''}>entrar</button>
+      <button type="button" role="tab" aria-selected="${signup}" class="${signup ? 'is-active' : ''}" ${signup ? '' : 'id="auth-switch"'}>criar conta</button>
+    </nav>
     <p class="auth-sub">${signup
       ? 'Crie sua conta com e-mail e senha. Depois você escolhe a gamertag e o avatar.'
-      : 'Entre com seu e-mail e senha para jogar. Seus jogos e saves continuam guardados só neste navegador.'}</p>
-    <form class="auth-form auth-login" id="auth-login" novalidate>
-      <label for="auth-email">E-mail</label>
-      <input id="auth-email" type="email" autocomplete="email" spellcheck="false" value="${escapeHtml(savedEmail)}" placeholder="voce@exemplo.com">
-      <label for="auth-password">Senha</label>
-      <input id="auth-password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? `Pelo menos ${MIN_PASSWORD} caracteres` : ''}">
-      ${signup ? `<label for="auth-password2">Repita a senha</label>
-      <input id="auth-password2" type="password" autocomplete="new-password">` : ''}
-      <div class="auth-actions">
-        <button class="auth-btn auth-primary" id="auth-submit" type="submit">${signup ? 'Criar conta' : 'Entrar'}</button>
-        ${signup ? '' : '<button class="auth-btn auth-link" id="auth-forgot" type="button">Esqueci a senha</button>'}
-      </div>
-      <p class="auth-switch">${signup ? 'Já tem conta?' : 'Ainda não tem conta?'}
-        <button class="auth-btn auth-link" id="auth-switch" type="button">${signup ? 'Entrar' : 'Criar conta'}</button></p>
+      : 'Bem-vindo de volta. Seus jogos e saves continuam guardados só neste navegador.'}</p>
+    <form class="auth-form" id="auth-login" novalidate>
+      <label class="auth-field">
+        <span>E-mail</span>
+        <input id="auth-email" type="email" autocomplete="email" spellcheck="false" value="${escapeHtml(savedEmail)}" placeholder="voce@exemplo.com">
+      </label>
+      <label class="auth-field">
+        <span>Senha</span>
+        <input id="auth-password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" placeholder="${signup ? `Pelo menos ${MIN_PASSWORD} caracteres` : '••••••••'}">
+      </label>
+      ${signup ? `<label class="auth-field">
+        <span>Repita a senha</span>
+        <input id="auth-password2" type="password" autocomplete="new-password" placeholder="••••••••">
+      </label>` : ''}
+      <button class="auth-btn auth-primary auth-wide" id="auth-submit" type="submit">${signup ? 'Criar conta' : 'Entrar'}</button>
+      ${signup ? '' : '<button class="auth-link auth-forgot" id="auth-forgot" type="button">Esqueci a senha</button>'}
       <p class="${isError ? 'auth-error' : 'auth-notice'}" id="auth-message">${escapeHtml(message)}</p>
     </form>`);
 
@@ -111,6 +161,11 @@ function showLogin({ mode = 'signin', message = '', isError = true } = {}) {
         await continueWithSession(data.session);
       }
     } catch (err) {
+      //Conta já existe: leva para "entrar" com o e-mail preenchido
+      if (signup && (err.code === 'user_already_exists' || /already registered/i.test(err.message || ''))) {
+        showLogin({ message: describeError(err) });
+        return;
+      }
       setMessage(describeError(err));
       submit.disabled = false;
     }
@@ -159,6 +214,7 @@ function showProfileEditor({ editing = false, onSave, onCancel } = {}) {
   let lastChecked = '';
 
   show(`
+    <div class="auth-brand"><span class="auth-orb" aria-hidden="true"></span><span>${editing ? 'Perfil' : 'Último passo'}</span></div>
     <h1 class="auth-title">${editing ? 'seu perfil' : 'criar perfil'}</h1>
     <p class="auth-sub">${editing ? 'Troque a gamertag ou o avatar quando quiser.' : 'Escolha a gamertag que os outros jogadores vão ver e gere o seu avatar.'}</p>
     <div class="auth-profile">
@@ -177,7 +233,7 @@ function showProfileEditor({ editing = false, onSave, onCancel } = {}) {
         </div>
         <p class="auth-error" id="auth-error"></p>
       </form>
-    </div>`);
+    </div>`, { wide: true });
 
   const input = document.getElementById('auth-gamertag');
   const hint = document.getElementById('auth-hint');
@@ -363,6 +419,7 @@ function editProfile() {
 async function startApp() {
   if (appStarted) return;
   appStarted = true;
+  stopBackground();
   root.hidden = true;
   root.innerHTML = '';
   // Disponível para o resto do site (ex.: mostrar a gamertag em algum lugar)
