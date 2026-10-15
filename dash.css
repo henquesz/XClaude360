@@ -63,7 +63,7 @@
 .pane-note { margin-top: 14px; color: #9a9a9a; font-size: 13px; }
 
 /* --- Grid de tiles -------------------------------------------------------- */
-#tiles {
+.tiles {
   display: grid;
   grid-template-columns: repeat(5, var(--u));
   grid-template-rows: repeat(3, var(--u));
@@ -125,12 +125,27 @@
 .iso-main { font-size: 15px; font-weight: 300; line-height: 1.3; word-break: break-word; }
 .iso-hint { font-size: 11px; color: #9a9a9a; line-height: 1.3; margin-top: auto; }
 .tile-iso.drag { box-shadow: inset 0 0 0 3px #6cf, 0 6px 18px rgba(0,0,0,.5); transform: scale(1.06); z-index: 2; }
-#progress { width: 100%; height: 6px; margin-top: 6px; accent-color: #35d035; }
-#progress[hidden] { display: none; }
+.tile-iso progress { width: 100%; height: 6px; margin-top: 6px; accent-color: #35d035; }
+.tile-iso progress[hidden] { display: none; }
+
+/* PlayStation 1: tiles com o azul do console */
+.tile-ps1, .tile-hero-ps1 { --green-hi: #2f6fd6; --green-lo: #1d4fa3; }
+.tile-hero-ps1 {
+  background:
+    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
+    radial-gradient(90% 70% at 70% 20%, rgba(120,170,255,.35), transparent 60%),
+    linear-gradient(160deg, #2f6fd6 0%, #1a3f85 55%, #0d2450 100%);
+}
+.tile-hero-ps1:hover { background:
+    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
+    radial-gradient(90% 70% at 70% 20%, rgba(120,170,255,.35), transparent 60%),
+    linear-gradient(160deg, #2f6fd6 0%, #1a3f85 55%, #0d2450 100%); }
+.tile-bios { --green-hi: #5a5a5a; --green-lo: #353535; }
+.tile-bios.ready { --green-hi: #27a927; --green-lo: #137313; }
+#dash.busy .tile:not(#t-play):not(#t-ps1-play) { filter: saturate(.5) brightness(.6); transform: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
 
 /* Enquanto inicia, trava os tiles. */
 #dash.busy .tile { pointer-events: none; }
-#dash.busy .tile:not(#t-play) { filter: saturate(.5) brightness(.6); transform: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
 
 /* --- Rodapé --------------------------------------------------------------- */
 #dash-foot { display: flex; align-items: center; gap: 22px; margin-top: 3vh; font-size: 13px; color: #c4c4c4; align-self: start; }
