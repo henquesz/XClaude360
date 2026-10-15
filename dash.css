@@ -24,6 +24,10 @@
 #dash[hidden] { display: none; }
 #dash button { font-family: inherit; }
 
+/* Fundo animado (gradient-ascii.js) atrás de tudo; o conteúdo do menu fica por cima. */
+#dash-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+#dash-status, #dash-main, #dash-foot { z-index: 1; }
+
 /* --- Barra de status (canto superior direito) --------------------------- */
 #dash-status {
   position: absolute; top: max(14px, calc(50vh - var(--gh) / 2 - var(--ch) * .95));

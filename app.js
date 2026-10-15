@@ -31,6 +31,27 @@ const LIB_SORTS = [
 
 const PANES = ['ps2', 'ps1', 'config'];
 
+// Fundo animado do menu (port do Gradient ASCII do React Bits): verde, discreto, atrás dos tiles.
+// Dá para ajustar ao vivo no console: nfsuBackground.update({ glyphOpacity: 0.5 })
+const BACKGROUND = {
+  colors: ['#06260b', '#0f6b1a', '#1aa41a', '#7fdc6a'],
+  shape: 'rise',
+  characters: ' .:-=+x*#%@',
+  cellSize: 16,
+  density: 0.75,
+  glyphOpacity: 0.8,
+  gradientOpacity: 0.6,
+  glow: 0.2,
+  flicker: 0.15,
+  softness: 0.6,
+  flow: 0.45,
+  speed: 0.6,
+  grain: 0.04,
+  scrambleRadius: 0.08,
+  clickEffect: 'wave',
+  dpr: 1.5,
+};
+
 const $ = (id) => document.getElementById(id);
 const ui = {
   stage: $('stage'),
@@ -60,6 +81,7 @@ const ui = {
   ps1Progress: $('ps1-progress'),
   ps1Bios: $('t-ps1-bios'),
   ps1BiosLabel: $('ps1-bios-label'),
+  dashBg: $('dash-bg'),
   stPads: $('st-pads'),
   stGames: $('st-games'),
   stClock: $('st-clock'),
@@ -80,7 +102,25 @@ const state = {
   emulatorReady: false,
   module: null,
   catalog: [],
+  background: null,   // fundo animado do menu
 };
+
+function loadBackground() {
+  import('./gradient-ascii.js')
+    .then(({ createGradientAscii }) => {
+      if (ui.dash.hidden) return;
+      state.background = createGradientAscii(ui.dashBg, BACKGROUND);
+      window.nfsuBackground = state.background;
+    })
+    .catch((err) => console.warn('Fundo animado indisponível:', err));
+}
+
+// O emulador precisa da GPU inteira: o fundo é destruído quando um jogo começa.
+function stopBackground() {
+  if (state.background) state.background.stop();
+  state.background = null;
+  window.nfsuBackground = null;
+}
 
 function setStatus(text, isError = false) {
   ui.status.textContent = text;
@@ -611,6 +651,7 @@ async function bootPs2(image) {
   }
 
   const { module } = state;
+  stopBackground();
   ui.dash.hidden = true;
   fullscreenOnFirstInput();
   module.bootDiscImage(image.bootName);
@@ -633,6 +674,7 @@ async function bootPs1(game) {
   setStatus('Carregando o PCSX-ReARMed…');
   ui.stage.hidden = true;        // o canvas do PS2 fica fora do caminho
   ui.ps1Stage.hidden = false;
+  stopBackground();
   ui.dash.hidden = true;
   fullscreenOnFirstInput();
   startPs1(game, state.ps1Bios);
@@ -866,6 +908,17 @@ const lib = { open: false, entries: [], focus: 0, sort: 'titulos', busy: false, 
 // Títulos raspados de páginas vêm com o sufixo do <title> ("... ROM (ISO) Download for ... - Site.com").
 const CATALOG_TITLE_NOISE = /\s*ROM\s*\((?:ISO|BIN)\)\s*Download for .*$|\s+-\s+[\w.-]+\.(?:com|net|org)\s*$/i;
 const CATALOG_PLACEHOLDER_COVER = /\/images\/128x128\.gif|^-?$/i;
+// Só é arquivo de jogo (baixável) a URL que termina numa extensão de disco; o resto é página e não é baixado.
+const GAME_FILE_EXT = /\.(chd|pbp|bin|img|iso|cue|zip|7z|cso|isz|mdf|ecm)$/i;
+
+function isGameFile(url) {
+  if (!url) return false;
+  try { return GAME_FILE_EXT.test(new URL(url, location.href).pathname); } catch { return false; }
+}
+
+function hostLabel(url) {
+  try { return new URL(url).hostname.replace(/^www\./, '').split('.')[0]; } catch { return ''; }
+}
 
 function slugify(text) {
   return String(text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -880,18 +933,22 @@ function catalogSystem(value) {
 }
 
 // Normaliza uma entrada do catálogo. Campos aceitos (português ou inglês):
-//   nome|title, plataforma|system, foto|cover, arquivo|url, tamanho|size, pagina, fonte, id, fileName.
-// Sem arquivo|url a entrada vira "Importar arquivo": o usuário escolhe a própria cópia do jogo.
-function normalizeGame(raw) {
+//   name|nome|title, image|foto|cover, url|arquivo, plataforma|system, tamanho|size, pagina, fonte, id, fileName.
+// A plataforma também pode vir do nome da lista (gamesPS1, gamesPS2).
+// url/arquivo só vira download quando aponta para um arquivo de disco; uma página (.php, .html...) não é baixada.
+// Sem arquivo a entrada vira "Importar arquivo": o usuário escolhe a própria cópia do jogo.
+function normalizeGame(raw, systemHint) {
   if (!raw || typeof raw !== 'object') return null;
-  const title = String(raw.title || raw.nome || '').replace(CATALOG_TITLE_NOISE, '').trim();
-  const system = catalogSystem(raw.system || raw.plataforma);
+  const title = String(raw.title || raw.nome || raw.name || '').replace(CATALOG_TITLE_NOISE, '').trim();
+  const system = catalogSystem(raw.system || raw.plataforma) || systemHint;
   if (!title || !system) return null;
-  const url = String(raw.url || raw.arquivo || '').trim();
-  const page = String(raw.pagina || raw.page || '');
+  const link = String(raw.arquivo || raw.url || '').trim();
+  const url = isGameFile(link) ? link : '';
+  const page = String(raw.pagina || raw.page || (url ? '' : link));
   const pageId = /\/(\d+)\//.exec(page);
-  const id = slugify(raw.id || (pageId ? `${raw.fonte || raw.source || 'jogo'}-${pageId[1]}` : title));
-  const cover = String(raw.cover || raw.foto || '').trim();
+  const source = String(raw.fonte || raw.source || hostLabel(page) || '');
+  const id = slugify(raw.id || (pageId ? `${source || 'jogo'}-${pageId[1]}` : title));
+  const cover = String(raw.cover || raw.foto || raw.image || '').trim();
   let fileName = String(raw.fileName || '');
   if (!fileName && url) {
     try { fileName = decodeURIComponent(new URL(url, location.href).pathname.split('/').pop()); } catch {}
@@ -900,8 +957,18 @@ function normalizeGame(raw) {
     id, title, system, url, fileName,
     size: Number(raw.size || raw.tamanho) || 0,
     cover: CATALOG_PLACEHOLDER_COVER.test(cover) ? '' : cover,
-    source: String(raw.fonte || raw.source || ''),
+    source,
   };
+}
+
+// Listas aceitas: um array solto, ou um objeto com arrays (games, jogos, gamesPS1, gamesPS2...).
+// Quando o nome da lista diz o console, ele vale para as entradas que não dizem.
+function catalogLists(data) {
+  if (Array.isArray(data)) return [[data, null]];
+  if (!data || typeof data !== 'object') return [];
+  return Object.entries(data)
+    .filter(([, value]) => Array.isArray(value))
+    .map(([key, value]) => [value, /ps2|playstation2/i.test(key) ? 'ps2' : /ps1|psx|psone/i.test(key) ? 'ps1' : null]);
 }
 
 async function loadCatalog() {
@@ -909,17 +976,17 @@ async function loadCatalog() {
     const response = await fetch(LIB_CATALOG_URL, { cache: 'no-cache' });
     if (!response.ok) return;
     const data = await response.json();
-    const games = Array.isArray(data) ? data : (data.games || data.jogos);
-    if (!Array.isArray(games)) return;
     const seen = new Set();
     state.catalog = [];
-    for (const raw of games) {
-      const game = normalizeGame(raw);
-      if (!game) continue;
-      let { id } = game;
-      for (let n = 2; seen.has(id); n++) id = `${game.id}-${n}`;
-      seen.add(id);
-      state.catalog.push({ ...game, id });
+    for (const [games, systemHint] of catalogLists(data)) {
+      for (const raw of games) {
+        const game = normalizeGame(raw, systemHint);
+        if (!game) continue;
+        let { id } = game;
+        for (let n = 2; seen.has(id); n++) id = `${game.id}-${n}`;
+        seen.add(id);
+        state.catalog.push({ ...game, id });
+      }
     }
   } catch (err) {
     console.warn('Catálogo da biblioteca indisponível:', err);
@@ -1060,6 +1127,7 @@ async function openLibrary() {
   lib.open = true;
   lib.returnFocus = document.activeElement;
   ui.library.hidden = false;
+  if (state.background) state.background.setActive(false);
   setLibStatus('');
   await refreshLibrary();
 }
@@ -1068,6 +1136,7 @@ function closeLibrary() {
   if (!lib.open || lib.busy) return;
   lib.open = false;
   ui.library.hidden = true;
+  if (state.background) state.background.setActive(true);
   const back = lib.returnFocus;
   if (back && back.classList && back.classList.contains('tile')) focusTile(back);
 }
@@ -1325,6 +1394,7 @@ function setupInput() {
 
 async function main() {
   setupInput();
+  loadBackground();
   startClock();
   updatePads();
   try { lib.sort = localStorage.getItem(LIB_SORT_KEY) || 'titulos'; } catch {}

@@ -21,6 +21,20 @@ Coloque aqui só jogos que você tem direito de distribuir (homebrew, jogos pró
 }
 ```
 
+Também dá para separar por console, com uma lista para cada um. O console vem do nome da lista:
+
+```json
+{
+  "gamesPS1": [
+    { "name": "Spider-Man", "url": "https://site.com/roms/psx/40092/Spider-Man.php", "image": "library/covers/spider-man.jpg" }
+  ],
+  "gamesPS2": []
+}
+```
+
+`name` = `title` e `image` = `cover`. Uma `url` que não termina em extensão de disco (.chd, .pbp, .bin, .img,
+.iso, .zip, .7z, .cso, .isz) é tratada como página: não é baixada, só serve para gerar o `id` (o número no caminho).
+
 Também vale o formato em português, um objeto por jogo:
 
 ```json
