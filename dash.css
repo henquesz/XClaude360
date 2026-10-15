@@ -98,31 +98,21 @@
 .tile-bios { --green-hi: #6d6d6d; --green-lo: #4a4a4a; }
 .tile-bios.ready { --green-hi: #1aa41a; --green-lo: #0f8c0f; }
 
-/* Tile grande "Jogar" do PS2: arte de cidade à noite, com o título em letreiro neon */
+/* Tile grande "Jogar" do PS2: azul escuro do console com os quatro símbolos */
 .tile-hero { padding: 0; }
 .hero-ps2 {
   background:
-    radial-gradient(60% 75% at 78% 30%, rgba(255,40,190,.42), transparent 62%),
-    radial-gradient(55% 70% at 18% 25%, rgba(20,200,255,.34), transparent 64%),
-    linear-gradient(180deg, #06071a 0%, #150b33 55%, #050409 100%);
+    radial-gradient(70% 60% at 30% 22%, rgba(80,150,255,.35), transparent 62%),
+    radial-gradient(60% 50% at 80% 90%, rgba(20,90,200,.25), transparent 70%),
+    linear-gradient(160deg, #1b3f8c 0%, #0b1e4d 50%, #03070f 100%);
 }
-.tile > svg.hero-scene { left: 0; top: 0; width: 100%; height: 100%; transform: none; fill: none; }
-.nfs-logo {
-  position: absolute; left: 0; right: 0; top: 18%;
-  display: flex; flex-direction: column; align-items: center; transform: skewX(-12deg);
-  line-height: .92; pointer-events: none;
+.ps2-art {
+  position: absolute; left: 0; right: 0; top: 16%;
+  display: flex; flex-direction: column; align-items: center; gap: calc(var(--ch) * .1);
 }
-.nfs-logo small { font-size: calc(var(--cw) * .07); font-weight: 600; letter-spacing: .32em; color: #cfe9ff; text-shadow: 0 0 6px rgba(25,211,255,.8); }
-.nfs-logo strong {
-  font-size: calc(var(--cw) * .2); font-weight: 900; letter-spacing: .02em; font-style: italic;
-  background: linear-gradient(180deg, #fff6b0 0%, #ffd23a 45%, #ff7a00 100%);
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 6px rgba(255,140,0,.55)) drop-shadow(0 2px 0 rgba(0,0,0,.6));
-}
-.nfs-logo em {
-  font-size: calc(var(--cw) * .26); font-weight: 900; font-style: italic; color: #19d3ff; margin-top: -.08em;
-  text-shadow: 0 0 10px rgba(25,211,255,.9), 0 0 2px #fff;
-}
+.ps2-art svg { width: 62%; height: auto; filter: drop-shadow(0 0 6px rgba(120,190,255,.55)); }
+.ps2-word { font-size: calc(var(--cw) * .16); font-weight: 300; letter-spacing: .01em; color: #eef4ff; text-shadow: 0 2px 8px rgba(0,0,0,.5); }
+.ps2-word em { font-style: normal; font-weight: 600; margin-left: .06em; font-size: .9em; vertical-align: .18em; color: #9fd9ff; }
 .hero-caption {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
   padding: calc(var(--ch) * .22) calc(var(--cw) * .055) calc(var(--ch) * .07);
@@ -229,6 +219,10 @@ kbd.btn-bumper { border-radius: .35em; min-width: 2em; background: linear-gradie
 }
 .lib-band::before { width: 34vh; height: 34vh; left: 14vw; top: -14vh; }
 .lib-band::after { width: 26vh; height: 26vh; right: 6vw; bottom: -6vh; }
+.lib-title {
+  position: absolute; left: 10vw; top: 4vh; z-index: 1;
+  font-size: clamp(13px, 1.15vw, 18px); font-weight: 600; letter-spacing: .04em; text-transform: lowercase; color: rgba(255,255,255,.8);
+}
 .lib-sort {
   position: absolute; left: 10vw; bottom: 2.4vh; z-index: 1;
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
@@ -313,9 +307,8 @@ kbd.btn-bumper { border-radius: .35em; min-width: 2em; background: linear-gradie
   .tile > .label { font-size: 9px; }
   .tile-info { font-size: 9px; }
   .dark-hint, .dark-kicker, .tile-dark .dark-icon { display: none; }
-  .nfs-logo small { display: none; }
   .lib-foot { padding: 0 16px 3vh; gap: 8px 14px; }
-  .lib-sort { left: 16px; }
+  .lib-sort, .lib-title { left: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

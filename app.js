@@ -92,6 +92,9 @@ const ui = {
   libSort: $('lib-sort'),
   libSortLabel: $('lib-sort-label'),
   libStatus: $('lib-status'),
+  libTitle: $('lib-title'),
+  libEmptyTitle: $('lib-empty-title'),
+  libEmptyText: $('lib-empty-text'),
   libActA: $('lib-act-a'),
   libActX: $('lib-act-x'),
   libLabelA: $('lib-label-a'),
@@ -844,7 +847,7 @@ function setImageInfo() {
     ui.isoMain.textContent = image.name || 'ISO guardada';
     ui.isoHint.textContent = (image.temporary ? 'Só nesta sessão' : 'Guardada no navegador') +
       (image.size ? ` · ${formatSize(image.size)}` : '') + ' · clique para trocar';
-    ui.playSub.textContent = 'Need for Speed: Underground 2';
+    ui.playSub.textContent = baseName(image.name || 'PlayStation 2');
   } else {
     ui.iso.classList.remove('ready');
     ui.isoMain.textContent = 'Nenhuma ISO';
@@ -909,7 +912,8 @@ function startClock() {
 // ---------------------------------------------------------------------------
 // Biblioteca de jogos
 
-const lib = { open: false, entries: [], focus: 0, sort: 'titulos', busy: false, returnFocus: null };
+// system: 'ps1' | 'ps2' mostra só aquele console (biblioteca aberta pela aba); null mostra tudo.
+const lib = { open: false, entries: [], focus: 0, sort: 'titulos', busy: false, returnFocus: null, system: null };
 
 // Títulos raspados de páginas vêm com o sufixo do <title> ("... ROM (ISO) Download for ... - Site.com").
 const CATALOG_TITLE_NOISE = /\s*ROM\s*\((?:ISO|BIN)\)\s*Download for .*$|\s+-\s+[\w.-]+\.(?:com|net|org)\s*$/i;
@@ -1013,7 +1017,7 @@ async function loadCatalog() {
 async function libraryEntries() {
   const entries = [];
   if (state.image) {
-    entries.push({ key: 'local-ps2', local: true, system: 'ps2', title: 'Need for Speed: Underground 2',
+    entries.push({ key: 'local-ps2', local: true, system: 'ps2', title: baseName(state.image.name),
       detail: state.image.name, size: state.image.size, stored: true, temporary: !!state.image.temporary });
   }
   if (state.ps1Game) {
@@ -1188,14 +1192,25 @@ function setLibStatus(text, isError = false) {
 }
 
 async function refreshLibrary(keepKey) {
-  lib.entries = sortEntries(await libraryEntries());
+  const all = await libraryEntries();
+  lib.entries = sortEntries(lib.system ? all.filter((entry) => entry.system === lib.system) : all);
   renderLibrary(keepKey);
   updateCounts();
 }
 
-async function openLibrary() {
+async function openLibrary(system = null) {
   if (lib.open || ui.dash.classList.contains('busy')) return;
   lib.open = true;
+  lib.system = system;
+  lib.focus = 0;
+  const label = system ? system.toUpperCase() : '';
+  ui.libTitle.textContent = system ? `biblioteca · ${label}` : 'biblioteca · todos os jogos';
+  ui.libEmptyTitle.textContent = system ? `Nenhum jogo de ${label} por aqui ainda` : 'Nenhum jogo por aqui ainda';
+  ui.libEmptyText.textContent = system === 'ps2'
+    ? 'Importe a ISO na aba ps2 ou adicione uma lista gamesPS2 ao catálogo do site.'
+    : system === 'ps1'
+      ? 'Importe o jogo na aba ps1 ou adicione uma lista gamesPS1 ao catálogo do site.'
+      : 'Importe um jogo pelas abas ps2 ou ps1. Os jogos do catálogo do site também aparecem aqui.';
   lib.returnFocus = document.activeElement;
   ui.library.hidden = false;
   if (state.background) state.background.setActive(false);
@@ -1559,7 +1574,7 @@ async function main() {
   $('t-help').onclick = () => showPane('config');
   $('t-stretch').onclick = toggleStretch;
   $('t-fullscreen').onclick = toggleFullscreen;
-  $('t-lib-ps2').onclick = openLibrary;
+  $('t-lib-ps2').onclick = () => openLibrary('ps2');
   $('t-export').onclick = async () => {
     try { exportSaves(await state.emulator); }
     catch (err) { alert('O emulador ainda não carregou: ' + (err && err.message || err)); }
@@ -1590,7 +1605,7 @@ async function main() {
   $('t-ps1-help').onclick = () => showPane('config');
   $('t-ps1-about').onclick = () => showPane('config');
   $('t-ps1-fullscreen').onclick = toggleFullscreen;
-  $('t-lib-ps1').onclick = openLibrary;
+  $('t-lib-ps1').onclick = () => openLibrary('ps1');
   $('t-ps1-forget').onclick = async () => {
     const game = state.ps1Game;
     if (!game) { choosePs1Game(); return; }
@@ -1612,7 +1627,7 @@ async function main() {
   // --- configurações ---
   $('t-cfg-fullscreen').onclick = toggleFullscreen;
   $('t-cfg-stretch').onclick = toggleStretch;
-  $('t-cfg-storage').onclick = openLibrary;
+  $('t-cfg-storage').onclick = () => openLibrary(null);
 
   // Arrastar um arquivo para qualquer lugar do menu cai no tile certo da aba aberta.
   // Na aba ps1, um arquivo de exatamente 512 KB é tratado como BIOS.
