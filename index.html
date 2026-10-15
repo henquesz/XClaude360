@@ -8,6 +8,8 @@
   <link rel="modulepreload" href="Play.js?v=5d3527a58f">
   <link rel="preload" href="Play.wasm?v=5d3527a58f" as="fetch" type="application/wasm" crossorigin>
   <link rel="stylesheet" href="dash.css">
+  <link rel="stylesheet" href="auth.css">
+  <script src="vendor/supabase.js"></script>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -42,6 +44,9 @@
   </style>
 </head>
 <body>
+  <!-- Login com Google + perfil (auth.js). Cobre o site até a pessoa entrar. -->
+  <div id="auth"><div class="auth-panel"><div class="auth-loading"><span class="auth-spinner" aria-hidden="true"></span>Carregando…</div></div></div>
+
   <div id="stage"><canvas id="screen" width="640" height="480"></canvas></div>
   <div id="ps1-stage" hidden><div id="ps1-player"></div></div>
   <div id="fps"></div>
@@ -285,6 +290,7 @@
 
   <input id="picker" type="file" hidden>
 
-  <script type="module" src="app.js"></script>
+  <!-- auth.js carrega o app.js depois do login -->
+  <script type="module" src="auth.js"></script>
 </body>
 </html>

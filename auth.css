@@ -1,0 +1,119 @@
+/* Tela de login / criação de perfil, no mesmo visual Metro do dashboard (dash.css). */
+
+#auth {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  background:
+    radial-gradient(70% 45% at 28% 88%, rgba(255,255,255,.16), transparent 70%),
+    linear-gradient(112deg, transparent 38%, rgba(255,255,255,.1) 48%, transparent 60%),
+    radial-gradient(120% 95% at 50% 30%, #dcdcdc 0%, #bdbdbd 36%, #959595 70%, #6a6a6a 100%);
+  color: #fff;
+  font-family: "Segoe UI", "Segoe UI Web (West European)", system-ui, -apple-system, Roboto, sans-serif;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+}
+#auth[hidden] { display: none; }
+
+.auth-panel { width: min(720px, 100%); }
+
+.auth-title {
+  margin: 0 0 .2em; font-weight: 300; letter-spacing: .005em; line-height: 1.05;
+  font-size: clamp(34px, 7vw, 64px); text-transform: lowercase;
+}
+.auth-sub { margin: 0 0 1.6em; max-width: 34em; font-size: clamp(14px, 1.6vw, 17px); color: rgba(255,255,255,.88); }
+
+.auth-google {
+  display: inline-flex; align-items: center; gap: .8em;
+  min-width: min(340px, 100%); padding: .95em 1.4em; border: 0; cursor: pointer;
+  font: inherit; font-size: clamp(15px, 1.8vw, 19px); color: #fff; text-shadow: none;
+  background: linear-gradient(#1aa41a, #0f8c0f);
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+  transition: transform .12s, filter .12s;
+}
+.auth-google svg { width: 1.6em; height: 1.6em; background: #fff; padding: .22em; border-radius: 2px; }
+.auth-google:hover, .auth-google:focus-visible { filter: brightness(1.1); transform: scale(1.02); outline: none; }
+.auth-google:disabled { filter: grayscale(.6); cursor: wait; transform: none; }
+
+.auth-error {
+  display: table; margin: 1em 0 0; padding: .5em .8em; font-size: 14px;
+  color: #fff; background: rgba(150, 20, 20, .85); text-shadow: none;
+}
+.auth-error:empty { display: none; }
+.auth-notice {
+  display: table; margin: 1em 0 0; padding: .5em .8em; font-size: 14px;
+  color: #fff; background: rgba(15, 110, 15, .85); text-shadow: none;
+}
+.auth-notice:empty { display: none; }
+.auth-login { max-width: 420px; }
+.auth-login input + label { margin-top: 8px; }
+.auth-switch { margin: 14px 0 0; font-size: 14px; }
+.auth-switch .auth-btn { padding: .2em .3em; font-size: 14px; }
+
+.auth-loading { display: flex; align-items: center; gap: .8em; font-size: 18px; justify-content: center; }
+.auth-spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,.35); border-top-color: #fff;
+  animation: auth-spin .8s linear infinite;
+}
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+
+/* Criação de perfil */
+.auth-profile { display: flex; gap: clamp(18px, 4vw, 40px); align-items: flex-start; flex-wrap: wrap; }
+.auth-avatar-col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.auth-avatar {
+  width: 160px; height: 160px; background: rgba(0,0,0,.15);
+  box-shadow: 0 2px 10px rgba(0,0,0,.3);
+}
+.auth-avatar svg { display: block; width: 100%; height: 100%; }
+.auth-palettes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; width: 160px; }
+.auth-swatch {
+  display: flex; height: 22px; padding: 0; border: 2px solid transparent; cursor: pointer; background: none;
+}
+.auth-swatch i { flex: 1; }
+.auth-swatch.is-on, .auth-swatch:focus-visible { border-color: #fff; outline: none; }
+
+.auth-form { flex: 1; min-width: min(300px, 100%); display: flex; flex-direction: column; gap: 6px; }
+.auth-form label { font-size: 15px; }
+.auth-form input {
+  font: inherit; font-size: 20px; padding: .45em .6em; border: 0; outline: none;
+  color: #1b1b1b; background: rgba(255,255,255,.95); text-shadow: none;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.25);
+}
+.auth-form input:focus { box-shadow: inset 0 1px 3px rgba(0,0,0,.25), 0 0 0 3px #1aa41a; }
+.auth-hint { font-size: 13px; color: rgba(255,255,255,.85); min-height: 1.3em; }
+.auth-hint.good { color: #c9ffc9; }
+.auth-hint.bad { color: #ffe0e0; }
+.auth-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+.auth-btn {
+  font: inherit; font-size: 15px; padding: .55em 1.1em; border: 0; cursor: pointer; color: #fff;
+  background: rgba(0,0,0,.28); text-shadow: none;
+}
+.auth-btn:hover, .auth-btn:focus-visible { background: rgba(0,0,0,.4); outline: none; }
+.auth-primary { background: linear-gradient(#1aa41a, #0f8c0f); }
+.auth-primary:hover, .auth-primary:focus-visible { background: linear-gradient(#22b622, #129a12); }
+.auth-btn:disabled { opacity: .6; cursor: wait; }
+.auth-link { background: none; text-decoration: underline; }
+.auth-link:hover, .auth-link:focus-visible { background: rgba(0,0,0,.15); }
+
+/* Gamertag + gamerpic na barra de status do dashboard */
+#auth-chip { position: relative; }
+#auth-chip .auth-chip-btn {
+  display: inline-flex; align-items: center; gap: .5em; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; color: inherit; text-shadow: inherit;
+}
+#auth-chip .auth-chip-btn svg { width: 1.9em; height: 1.9em; fill: initial; filter: drop-shadow(0 1px 2px rgba(0,0,0,.35)); }
+#auth-chip .auth-chip-btn b { font-weight: 400; }
+#auth-chip .auth-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 160px; z-index: 20;
+  display: flex; flex-direction: column; background: rgba(20,20,22,.95); box-shadow: 0 4px 14px rgba(0,0,0,.4);
+}
+#auth-chip .auth-menu[hidden] { display: none; }
+#auth-chip .auth-menu button {
+  font: inherit; font-size: 14px; text-align: left; padding: .6em 1em; border: 0; background: none; color: #fff; cursor: pointer;
+}
+#auth-chip .auth-menu button:hover, #auth-chip .auth-menu button:focus-visible { background: #0f8c0f; outline: none; }
+
+@media (max-width: 560px) {
+  .auth-profile { flex-direction: column; align-items: stretch; }
+  .auth-avatar-col { align-items: center; }
+}
