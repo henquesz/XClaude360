@@ -1,5 +1,5 @@
 -- Rode isto uma vez no Supabase: SQL Editor > New query > colar > Run.
--- Cria a tabela de perfis (gamertag + avatar) ligada aos usuários do login com Google.
+-- Cria a tabela de perfis (gamertag + avatar) ligada aos usuários do login (Authentication do Supabase).
 
 create table if not exists public.profiles (
   id            uuid primary key references auth.users (id) on delete cascade,
