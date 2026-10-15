@@ -18,6 +18,19 @@ const PS1_DATA_PATH = new URL('vendor/ejs/', location.href).pathname;
 const PS1_ACCEPT = '.chd,.pbp,.bin,.img,.iso,.cue,.zip,.7z';
 const PS2_ACCEPT = '.iso,.chd,.cso,.isz,.bin';
 
+// Biblioteca: catálogo do site (library/games.json) + cópias baixadas no OPFS
+const LIB_CATALOG_URL = 'library/games.json';
+const LIB_FILE_PREFIX = 'lib-';    // nome do arquivo no OPFS
+const LIB_META_PREFIX = 'lib.';    // chave no localStorage
+const LIB_SORT_KEY = 'lib.sort';
+const LIB_SORTS = [
+  { key: 'titulos', label: 'títulos' },
+  { key: 'sistema', label: 'sistema' },
+  { key: 'navegador', label: 'no navegador' },
+];
+
+const PANES = ['ps2', 'ps1', 'config'];
+
 const $ = (id) => document.getElementById(id);
 const ui = {
   stage: $('stage'),
@@ -30,14 +43,14 @@ const ui = {
   toolbar: $('toolbar'),
   help: $('help'),
   importFile: $('import-file'),
-  avatar: $('avatar'),
-  avatarWrap: $('avatar-wrap'),
   play: $('t-play'),
   playSub: $('play-sub'),
   iso: $('t-iso'),
   isoMain: $('iso-main'),
   isoHint: $('iso-hint'),
   stretchLabel: $('stretch-label'),
+  cfgStretchLabel: $('cfg-stretch-label'),
+  cfgStorageLabel: $('cfg-storage-label'),
   ps1Stage: $('ps1-stage'),
   ps1Play: $('t-ps1-play'),
   ps1PlaySub: $('ps1-play-sub'),
@@ -47,6 +60,26 @@ const ui = {
   ps1Progress: $('ps1-progress'),
   ps1Bios: $('t-ps1-bios'),
   ps1BiosLabel: $('ps1-bios-label'),
+  stPads: $('st-pads'),
+  stGames: $('st-games'),
+  stClock: $('st-clock'),
+  library: $('library'),
+  libStrip: $('lib-strip'),
+  libEmpty: $('lib-empty'),
+  libSort: $('lib-sort'),
+  libSortLabel: $('lib-sort-label'),
+  libStatus: $('lib-status'),
+};
+
+// Estado compartilhado entre o menu, a biblioteca e os dois emuladores.
+const state = {
+  image: null,        // ISO do PS2 guardada no slot principal
+  ps1Game: null,      // jogo de PS1 guardado no slot principal
+  ps1Bios: null,
+  emulator: null,     // Promise do módulo Play!
+  emulatorReady: false,
+  module: null,
+  catalog: [],
 };
 
 function setStatus(text, isError = false) {
@@ -175,16 +208,22 @@ async function findStored(opfsName, metaKey) {
   }
 }
 
-async function storeFile(file, opfsName, metaKey, meta, progress, onProgress) {
-  const root = await opfsRoot();
-  if (!root) return false;
+async function ensureSpace(bytes) {
+  if (!navigator.storage) return true;
   if (navigator.storage.estimate) {
     const { quota = 0, usage = 0 } = await navigator.storage.estimate();
-    if (quota - usage < file.size + 64 * 1024 * 1024) return false;
+    if (quota - usage < bytes + 64 * 1024 * 1024) return false;
   }
   if (navigator.storage.persist) {
     try { await navigator.storage.persist(); } catch {}
   }
+  return true;
+}
+
+async function storeFile(file, opfsName, metaKey, meta, progress, onProgress) {
+  const root = await opfsRoot();
+  if (!root) return false;
+  if (!(await ensureSpace(file.size))) return false;
 
   localStorage.removeItem(metaKey);
   const handle = await root.getFileHandle(opfsName, { create: true });
@@ -208,6 +247,43 @@ async function storeFile(file, opfsName, metaKey, meta, progress, onProgress) {
   }
   localStorage.setItem(metaKey, JSON.stringify({ size: file.size, name: file.name, ...meta }));
   return true;
+}
+
+// Baixa um arquivo direto para o OPFS, em streaming (nunca segura o jogo inteiro na memória).
+async function downloadToOpfs(url, opfsName, metaKey, meta, expectedSize, onProgress) {
+  const root = await opfsRoot();
+  if (!root) throw new Error('Este navegador não consegue guardar arquivos (OPFS indisponível).');
+  let response;
+  try {
+    response = await fetch(url);
+  } catch {
+    throw new Error('O servidor do arquivo não respondeu ou não permite download pelo navegador (CORS).');
+  }
+  if (!response.ok || !response.body) throw new Error(`O servidor do arquivo respondeu ${response.status}.`);
+  const total = Number(response.headers.get('content-length')) || expectedSize || 0;
+  if (total && !(await ensureSpace(total))) throw new Error(`Sem espaço no navegador para ${formatSize(total)}.`);
+
+  localStorage.removeItem(metaKey);
+  const handle = await root.getFileHandle(opfsName, { create: true });
+  const writable = await handle.createWritable();
+  let done = 0;
+  try {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done: end, value } = await reader.read();
+      if (end) break;
+      await writable.write(value);
+      done += value.byteLength;
+      onProgress(done, total);
+    }
+    await writable.close();
+  } catch (err) {
+    try { await writable.abort(); } catch {}
+    try { await root.removeEntry(opfsName); } catch {}
+    throw err;
+  }
+  localStorage.setItem(metaKey, JSON.stringify({ ...meta, size: done }));
+  return done;
 }
 
 function pickFile(accept) {
@@ -377,8 +453,14 @@ function fullscreenOnFirstInput() {
 
 function setStretch(enabled) {
   document.body.classList.toggle('stretch', enabled);
-  ui.stretchLabel.textContent = enabled ? 'Esticar 16:9 ✓' : 'Esticar 16:9';
+  const label = enabled ? 'Esticar 16:9 ✓' : 'Esticar 16:9';
+  ui.stretchLabel.textContent = label;
+  ui.cfgStretchLabel.textContent = label;
   try { localStorage.setItem(STRETCH_KEY, enabled ? '1' : ''); } catch {}
+}
+
+function toggleStretch() {
+  setStretch(!document.body.classList.contains('stretch'));
 }
 
 function forgetAndReload(module) {
@@ -405,7 +487,7 @@ function setupToolbar(module) {
   wake();
 
   $('btn-fullscreen').onclick = toggleFullscreen;
-  $('btn-stretch').onclick = () => setStretch(!document.body.classList.contains('stretch'));
+  $('btn-stretch').onclick = toggleStretch;
   ui.screen.ondblclick = toggleFullscreen;
   $('btn-help').onclick = () => { ui.help.hidden = !ui.help.hidden; wake(); };
   $('btn-export').onclick = () => exportSaves(module);
@@ -509,32 +591,161 @@ function startPs1(game, bios) {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard (menu inicial)
+// Iniciar os jogos (chamado pelos tiles e pela biblioteca)
+
+async function bootPs2(image) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!image) return;
+  showPane('ps2');
+  ui.dash.classList.add('busy');
+  ui.play.classList.add('booting');
+  try {
+    setStatus(state.emulatorReady ? 'Iniciando…' : 'Carregando o emulador…');
+    state.module = await state.emulator;
+    setStatus('Abrindo a imagem do jogo…');
+    await startDiscWorker(state.module, image.source);
+  } catch (err) {
+    console.error(err);
+    fail('Erro: ' + (err && err.message || err));
+    return;
+  }
+
+  const { module } = state;
+  ui.dash.hidden = true;
+  fullscreenOnFirstInput();
+  module.bootDiscImage(image.bootName);
+  startStats(module);
+  startSaveSync(module);
+  setupToolbar(module);
+}
+
+async function bootPs1(game) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!game) return;
+  if (!state.ps1Bios && !confirm('Nenhuma BIOS escolhida. O PCSX-ReARMed usa uma BIOS simulada, mas vários jogos travam ou perdem o save sem a original. Continuar sem BIOS?')) {
+    showPane('ps1');
+    await choosePs1Bios();
+    if (!state.ps1Bios) return;
+  }
+  showPane('ps1');
+  ui.dash.classList.add('busy');
+  ui.ps1Play.classList.add('booting');
+  setStatus('Carregando o PCSX-ReARMed…');
+  ui.stage.hidden = true;        // o canvas do PS2 fica fora do caminho
+  ui.ps1Stage.hidden = false;
+  ui.dash.hidden = true;
+  fullscreenOnFirstInput();
+  startPs1(game, state.ps1Bios);
+}
+
+async function chooseImage(file) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!file) file = await pickFile(PS2_ACCEPT);
+  if (!file) return;
+  const { image } = state;
+  if (image && !image.temporary && !confirm(`Trocar a ISO guardada (${image.name}) por ${file.name}?`)) return;
+  const next = await acceptImageFile(file);
+  if (next) { state.image = next; setImageInfo(); }
+  focusTile(ui.play);
+  updateCounts();
+}
+
+async function choosePs1Game(file) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!file) file = await pickFile(PS1_ACCEPT);
+  if (!file) return;
+  if (extensionOf(file.name) === '.cue') {
+    alert('Um .cue sozinho não serve: ele só aponta para os .bin. Compacte o .cue e os .bin juntos num ZIP, ou use CHD/PBP.');
+    return;
+  }
+  const game = state.ps1Game;
+  if (game && !game.temporary && !confirm(`Trocar o jogo guardado (${game.name}) por ${file.name}?`)) return;
+  ui.ps1Iso.classList.remove('ready');
+  ui.ps1IsoHint.textContent = file.name;
+  const next = await acceptPs1File(file, PS1_IMAGE_FILE, PS1_IMAGE_KEY, ui.ps1Progress,
+    (text) => { ui.ps1IsoMain.textContent = text; }, 'o jogo');
+  if (next) state.ps1Game = next;
+  setPs1Info();
+  focusTile(ui.ps1Play);
+  updateCounts();
+}
+
+async function choosePs1Bios(file) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!file) file = await pickFile('.bin,.rom');
+  if (!file) return;
+  if (file.size !== PS1_BIOS_SIZE && !confirm(`Uma BIOS de PS1 tem 512 KB e ${file.name} tem ${formatSize(file.size)}. Usar mesmo assim?`)) return;
+  ui.ps1BiosLabel.textContent = 'Guardando…';
+  const next = await acceptPs1File(file, PS1_BIOS_FILE, PS1_BIOS_KEY, ui.ps1Progress, () => {}, 'a BIOS');
+  if (next) state.ps1Bios = next;
+  setPs1Info();
+  focusTile(ui.ps1Play);
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard: abas, foco e navegação
+
+let paneIndex = 0;
+
+function currentPane() {
+  return PANES[paneIndex];
+}
 
 function activeTiles() {
   return ui.dash.querySelector('.pane.is-active .tiles');
 }
 
-function showPane(name) {
+function navTiles(grid) {
+  return [...grid.querySelectorAll('button.tile:not([disabled])')];
+}
+
+function tileBox(tile) {
+  return {
+    left: tile.offsetLeft,
+    right: tile.offsetLeft + tile.offsetWidth,
+    top: tile.offsetTop,
+    bottom: tile.offsetTop + tile.offsetHeight,
+    cx: tile.offsetLeft + tile.offsetWidth / 2,
+    cy: tile.offsetTop + tile.offsetHeight / 2,
+  };
+}
+
+// edge: from which side the focus enters the pane ('left' | 'right'), anchorY keeps the row.
+function showPane(name, edge, anchorY) {
+  const index = PANES.indexOf(name);
+  if (index < 0) return;
+  paneIndex = index;
+  ui.dash.style.setProperty('--pane', index);
   for (const tab of ui.dash.querySelectorAll('#dash-nav .tab')) tab.classList.toggle('is-active', tab.dataset.pane === name);
-  for (const pane of ui.dash.querySelectorAll('.pane')) pane.classList.toggle('is-active', pane.dataset.pane === name);
+  ui.dash.querySelectorAll('.pane').forEach((pane, i) => {
+    pane.classList.toggle('is-active', i === index);
+    pane.classList.toggle('is-before', i < index);
+    pane.classList.toggle('is-after', i > index);
+  });
+
   const grid = activeTiles();
-  if (!grid) return;
-  const active = document.activeElement;
-  const current = active && active.classList.contains('tile') && grid.contains(active) ? active : grid.querySelector('.tile-hero');
-  focusTile(current);
+  const tiles = navTiles(grid);
+  let target = grid.querySelector('.tile-hero') || tiles[0];
+  if (edge && tiles.length) {
+    const y = anchorY ?? 0;
+    const score = (tile) => {
+      const box = tileBox(tile);
+      const x = edge === 'left' ? box.left : -box.right;
+      return x + Math.abs(box.cy - y) * 2;
+    };
+    target = tiles.reduce((best, tile) => (score(tile) < score(best) ? tile : best));
+  }
+  focusTile(target);
+
   if (name === 'ps1') prefetchPs1Core();
+  if (name === 'config') refreshStorage();
 }
 
-function currentPane() {
-  const tab = ui.dash.querySelector('#dash-nav .tab.is-active');
-  return tab ? tab.dataset.pane : 'inicio';
-}
-
-function stepPane(delta) {
-  const tabs = [...ui.dash.querySelectorAll('#dash-nav .tab')];
-  const index = tabs.findIndex((tab) => tab.classList.contains('is-active'));
-  showPane(tabs[(index + delta + tabs.length) % tabs.length].dataset.pane);
+function stepPane(delta, edge, anchorY) {
+  const next = paneIndex + delta;
+  if (next < 0 || next >= PANES.length) return false;
+  showPane(PANES[next], edge, anchorY);
+  return true;
 }
 
 function focusTile(tile) {
@@ -544,110 +755,42 @@ function focusTile(tile) {
   tile.focus({ preventScroll: true });
 }
 
-// Move o foco no grid pela geometria, como o d-pad do Xbox.
+// Move o foco no grid pela geometria, como o d-pad do Xbox; nas bordas, passa para a aba vizinha.
 function moveFocus(dx, dy) {
   const grid = activeTiles();
   if (!grid) return;
-  const tiles = [...grid.querySelectorAll('.tile:not([disabled])')];
+  const tiles = navTiles(grid);
   const current = tiles.find((tile) => tile.classList.contains('is-focus')) || tiles.find((tile) => tile === document.activeElement);
-  if (!current) { focusTile(grid.querySelector('.tile-hero')); return; }
-  const from = current.getBoundingClientRect();
-  const fx = from.left + from.width / 2;
-  const fy = from.top + from.height / 2;
+  if (!current) { focusTile(grid.querySelector('.tile-hero') || tiles[0]); return; }
+  const from = tileBox(current);
   let best = null;
   let bestScore = Infinity;
   for (const tile of tiles) {
     if (tile === current) continue;
-    const rect = tile.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
+    const box = tileBox(tile);
+    // Só vale um tile que esteja inteiro do lado pedido (como o d-pad do 360).
     let primary;
     let secondary;
-    if (dx) { primary = (cx - fx) * dx; secondary = Math.abs(cy - fy); }
-    else { primary = (cy - fy) * dy; secondary = Math.abs(cx - fx); }
-    if (primary <= 1) continue;
+    if (dx > 0) { primary = box.left - from.right; secondary = Math.abs(box.cy - from.cy); }
+    else if (dx < 0) { primary = from.left - box.right; secondary = Math.abs(box.cy - from.cy); }
+    else if (dy > 0) { primary = box.top - from.bottom; secondary = Math.abs(box.cx - from.cx); }
+    else { primary = from.top - box.bottom; secondary = Math.abs(box.cx - from.cx); }
+    if (primary < -2) continue;
     const score = primary + secondary * 2;
     if (score < bestScore) { bestScore = score; best = tile; }
   }
   if (best) focusTile(best);
+  else if (dx) stepPane(dx, dx > 0 ? 'left' : 'right', from.cy);
 }
 
 function activateFocused() {
   const grid = activeTiles();
   const tile = (grid && grid.querySelector('.tile.is-focus')) || document.activeElement;
-  if (tile && tile.classList.contains('tile') && !tile.disabled) tile.click();
+  if (tile && tile.matches('button.tile') && !tile.disabled) tile.click();
 }
 
-function setupDashInput() {
-  // Teclado
-  window.addEventListener('keydown', (event) => {
-    if (ui.dash.hidden) return;
-    const tag = event.target && event.target.tagName;
-    if (tag === 'INPUT') return;
-    const inGrid = !!activeTiles();
-    switch (event.key) {
-      case 'ArrowLeft': if (inGrid) moveFocus(-1, 0); break;
-      case 'ArrowRight': if (inGrid) moveFocus(1, 0); break;
-      case 'ArrowUp': if (inGrid) moveFocus(0, -1); break;
-      case 'ArrowDown': if (inGrid) moveFocus(0, 1); break;
-      case 'Enter': case ' ':
-        // preventDefault cancela o clique nativo do botão, então o tile só é ativado uma vez.
-        if (inGrid && !ui.dash.classList.contains('busy')) activateFocused();
-        break;
-      case 'Escape': case 'Backspace': if (currentPane() !== 'inicio') showPane('inicio'); break;
-      case 'q': case 'Q': stepPane(-1); break;
-      case 'e': case 'E': stepPane(1); break;
-      default: return;
-    }
-    event.preventDefault();
-  });
-
-  // Espaço dispara o clique nativo no keyup; cancela para não ativar duas vezes.
-  window.addEventListener('keyup', (event) => {
-    if (!ui.dash.hidden && event.key === ' ' && event.target && event.target.classList && event.target.classList.contains('tile')) event.preventDefault();
-  });
-
-  // Mouse: passar por cima já foca o tile, como no dashboard.
-  for (const tile of ui.dash.querySelectorAll('.tile')) {
-    tile.addEventListener('pointerenter', () => { if (!tile.disabled && !ui.dash.classList.contains('busy')) focusTile(tile); });
-  }
-  for (const tab of ui.dash.querySelectorAll('#dash-nav .tab')) {
-    tab.onclick = () => showPane(tab.dataset.pane);
-  }
-
-  // Controle (Gamepad API): d-pad/analógico navega, A seleciona, B volta, LB/RB trocam de aba.
-  const held = new Set();
-  let lastMove = 0;
-  const poll = () => {
-    if (ui.dash.hidden) return;
-    requestAnimationFrame(poll);
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = [...pads].find((p) => p && p.connected);
-    if (!pad) return;
-    const now = performance.now();
-    const pressed = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
-    const edge = (i) => { const on = pressed(i); const was = held.has(i); if (on) held.add(i); else held.delete(i); return on && !was; };
-    const ax = pad.axes[0] || 0;
-    const ay = pad.axes[1] || 0;
-    const dx = pressed(15) || ax > 0.5 ? 1 : pressed(14) || ax < -0.5 ? -1 : 0;
-    const dy = pressed(13) || ay > 0.5 ? 1 : pressed(12) || ay < -0.5 ? -1 : 0;
-    const inGrid = !!activeTiles();
-    if ((dx || dy) && now - lastMove > 220) {
-      lastMove = now;
-      if (inGrid) moveFocus(dx, dx ? 0 : dy);
-    } else if (!dx && !dy) {
-      lastMove = 0;
-    }
-    if (edge(0) && inGrid && !ui.dash.classList.contains('busy')) activateFocused();
-    if (edge(1) && currentPane() !== 'inicio') showPane('inicio');
-    if (edge(4)) stepPane(-1);
-    if (edge(5)) stepPane(1);
-  };
-  window.addEventListener('gamepadconnected', () => requestAnimationFrame(poll), { once: true });
-  if (navigator.getGamepads && [...navigator.getGamepads()].some((p) => p)) requestAnimationFrame(poll);
-}
-
-function setImageInfo(image) {
+function setImageInfo() {
+  const { image } = state;
   if (image) {
     ui.iso.classList.add('ready');
     ui.isoMain.textContent = image.name || 'ISO guardada';
@@ -662,7 +805,9 @@ function setImageInfo(image) {
   }
 }
 
-function setPs1Info(game, bios) {
+function setPs1Info() {
+  const game = state.ps1Game;
+  const bios = state.ps1Bios;
   if (game) {
     ui.ps1Iso.classList.add('ready');
     ui.ps1IsoMain.textContent = game.name;
@@ -682,33 +827,509 @@ function setPs1Info(game, bios) {
     ui.ps1BiosLabel.textContent = 'BIOS: escolher';
     ui.ps1Bios.title = 'Arquivo de 512 KB do console, ex. scph5501.bin';
   }
-  ui.ps1PlaySub.textContent = !game ? 'Escolha o jogo primeiro' : !bios ? 'Sem BIOS: compatibilidade menor' : 'PlayStation 1';
+  ui.ps1PlaySub.textContent = !game ? 'Escolha o jogo primeiro' : baseName(game.name) + (bios ? '' : ' · sem BIOS');
 }
 
-function loadAvatar() {
-  import('./avatar.js')
-    .then(({ createAvatar }) => {
-      const avatar = createAvatar(ui.avatar);
-      if (!avatar) ui.avatarWrap.hidden = true;
-      return avatar;
-    })
-    .catch((err) => {
-      console.warn('Avatar não carregou:', err);
-      ui.avatarWrap.hidden = true;
-      return null;
-    })
-    .then((avatar) => { dash.avatar = avatar; });
+async function refreshStorage() {
+  if (!navigator.storage || !navigator.storage.estimate) return;
+  try {
+    const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+    ui.cfgStorageLabel.textContent = `Armazenamento · ${formatSize(usage) || '0 KB'} de ${formatSize(quota)}`;
+  } catch {}
 }
 
-const dash = { avatar: null };
+// --- Barra de status: controles, jogos guardados, relógio --------------------
+
+function updatePads() {
+  const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter((p) => p && p.connected) : [];
+  ui.stPads.textContent = String(pads.length);
+}
+
+async function updateCounts() {
+  const entries = await libraryEntries();
+  ui.stGames.textContent = String(entries.filter((entry) => entry.stored).length);
+}
+
+function startClock() {
+  const tick = () => {
+    ui.stClock.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  };
+  tick();
+  setInterval(tick, 15000);
+}
+
+// ---------------------------------------------------------------------------
+// Biblioteca de jogos
+
+const lib = { open: false, entries: [], focus: 0, sort: 'titulos', busy: false, returnFocus: null };
+
+// Títulos raspados de páginas vêm com o sufixo do <title> ("... ROM (ISO) Download for ... - Site.com").
+const CATALOG_TITLE_NOISE = /\s*ROM\s*\((?:ISO|BIN)\)\s*Download for .*$|\s+-\s+[\w.-]+\.(?:com|net|org)\s*$/i;
+const CATALOG_PLACEHOLDER_COVER = /\/images\/128x128\.gif|^-?$/i;
+
+function slugify(text) {
+  return String(text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'jogo';
+}
+
+function catalogSystem(value) {
+  const key = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (key === 'ps1' || key === 'psx' || key === 'psone' || key === 'playstation') return 'ps1';
+  if (key === 'ps2' || key === 'playstation2') return 'ps2';
+  return null;
+}
+
+// Normaliza uma entrada do catálogo. Campos aceitos (português ou inglês):
+//   nome|title, plataforma|system, foto|cover, arquivo|url, tamanho|size, pagina, fonte, id, fileName.
+// Sem arquivo|url a entrada vira "Importar arquivo": o usuário escolhe a própria cópia do jogo.
+function normalizeGame(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = String(raw.title || raw.nome || '').replace(CATALOG_TITLE_NOISE, '').trim();
+  const system = catalogSystem(raw.system || raw.plataforma);
+  if (!title || !system) return null;
+  const url = String(raw.url || raw.arquivo || '').trim();
+  const page = String(raw.pagina || raw.page || '');
+  const pageId = /\/(\d+)\//.exec(page);
+  const id = slugify(raw.id || (pageId ? `${raw.fonte || raw.source || 'jogo'}-${pageId[1]}` : title));
+  const cover = String(raw.cover || raw.foto || '').trim();
+  let fileName = String(raw.fileName || '');
+  if (!fileName && url) {
+    try { fileName = decodeURIComponent(new URL(url, location.href).pathname.split('/').pop()); } catch {}
+  }
+  return {
+    id, title, system, url, fileName,
+    size: Number(raw.size || raw.tamanho) || 0,
+    cover: CATALOG_PLACEHOLDER_COVER.test(cover) ? '' : cover,
+    source: String(raw.fonte || raw.source || ''),
+  };
+}
+
+async function loadCatalog() {
+  try {
+    const response = await fetch(LIB_CATALOG_URL, { cache: 'no-cache' });
+    if (!response.ok) return;
+    const data = await response.json();
+    const games = Array.isArray(data) ? data : (data.games || data.jogos);
+    if (!Array.isArray(games)) return;
+    const seen = new Set();
+    state.catalog = [];
+    for (const raw of games) {
+      const game = normalizeGame(raw);
+      if (!game) continue;
+      let { id } = game;
+      for (let n = 2; seen.has(id); n++) id = `${game.id}-${n}`;
+      seen.add(id);
+      state.catalog.push({ ...game, id });
+    }
+  } catch (err) {
+    console.warn('Catálogo da biblioteca indisponível:', err);
+  }
+}
+
+async function libraryEntries() {
+  const entries = [];
+  if (state.image) {
+    entries.push({ key: 'local-ps2', local: true, system: 'ps2', title: 'Need for Speed: Underground 2',
+      detail: state.image.name, size: state.image.size, stored: true, temporary: !!state.image.temporary });
+  }
+  if (state.ps1Game) {
+    entries.push({ key: 'local-ps1', local: true, system: 'ps1', title: baseName(state.ps1Game.name),
+      detail: state.ps1Game.name, size: state.ps1Game.size, stored: true, temporary: !!state.ps1Game.temporary });
+  }
+  for (const game of state.catalog) {
+    const known = localStorage.getItem(LIB_META_PREFIX + game.id);
+    const stored = known ? await findStored(LIB_FILE_PREFIX + game.id, LIB_META_PREFIX + game.id) : null;
+    entries.push({ key: 'cat-' + game.id, game, system: game.system, title: game.title, cover: game.cover,
+      size: stored ? stored.meta.size : game.size, stored: !!stored });
+  }
+  return entries;
+}
+
+function sortEntries(entries) {
+  const byTitle = (a, b) => a.title.localeCompare(b.title, 'pt-BR', { sensitivity: 'base' });
+  const sorted = [...entries];
+  if (lib.sort === 'sistema') sorted.sort((a, b) => b.system.localeCompare(a.system) || byTitle(a, b));
+  else if (lib.sort === 'navegador') sorted.sort((a, b) => Number(b.stored) - Number(a.stored) || byTitle(a, b));
+  else sorted.sort(byTitle);
+  return sorted;
+}
+
+const PAD_PATH = 'M6 7h12a4 4 0 0 1 4 4v3a3 3 0 0 1-3 3 3 3 0 0 1-2.4-1.2L15.5 14h-7l-1.1 1.8A3 3 0 0 1 5 17a3 3 0 0 1-3-3v-3a4 4 0 0 1 4-4Zm1 3v1.5H5.5V13H7v1.5h1.5V13H10v-1.5H8.5V10H7Zm9.5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm2 2a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z';
+const DISC_PATH = 'M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z';
+
+function svgIcon(path, className) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  if (className) svg.setAttribute('class', className);
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', path);
+  svg.appendChild(p);
+  return svg;
+}
+
+function entryMeta(entry) {
+  if (entry.local) return (entry.temporary ? 'Só nesta sessão' : 'No navegador') + (entry.size ? ` · ${formatSize(entry.size)}` : '');
+  if (entry.stored) return 'No navegador' + (entry.size ? ` · ${formatSize(entry.size)}` : '');
+  if (!entry.game.url) return 'Importar arquivo';
+  return 'Baixar' + (entry.size ? ` · ${formatSize(entry.size)}` : '');
+}
+
+function buildCard(entry, index) {
+  const card = document.createElement('button');
+  card.className = 'card' + (entry.stored ? ' stored' : '');
+  card.setAttribute('role', 'option');
+  card.dataset.index = String(index);
+
+  const badge = document.createElement('div');
+  badge.className = 'card-badge ' + entry.system;
+  badge.append(svgIcon(DISC_PATH), entry.system === 'ps2' ? 'PS2' : 'PS1');
+
+  const art = document.createElement('div');
+  art.className = 'card-art';
+  art.append(svgIcon(PAD_PATH));
+  if (entry.cover) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.loading = 'lazy';
+    if (new URL(entry.cover, location.href).origin !== location.origin) img.crossOrigin = 'anonymous';
+    img.onerror = () => img.remove();
+    img.src = entry.cover;
+    art.append(img);
+  }
+  const progress = document.createElement('div');
+  progress.className = 'card-progress';
+  progress.append(document.createElement('i'));
+  art.append(progress);
+
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = entry.title;
+  title.title = entry.detail || entry.title;
+
+  const meta = document.createElement('div');
+  meta.className = 'card-meta';
+  meta.textContent = entryMeta(entry);
+
+  card.append(badge, art, title, meta, svgIcon(PAD_PATH, 'card-pad'));
+  card.addEventListener('pointerenter', () => { if (!lib.busy) focusCard(index, false); });
+  card.addEventListener('click', () => { focusCard(index, false); activateEntry(lib.entries[index], card); });
+  return card;
+}
+
+function renderLibrary(keepKey) {
+  ui.libStrip.textContent = '';
+  lib.entries.forEach((entry, index) => ui.libStrip.append(buildCard(entry, index)));
+  ui.libEmpty.hidden = lib.entries.length > 0;
+  ui.libStrip.hidden = lib.entries.length === 0;
+  ui.libSortLabel.textContent = (LIB_SORTS.find((s) => s.key === lib.sort) || LIB_SORTS[0]).label;
+  let index = keepKey ? lib.entries.findIndex((entry) => entry.key === keepKey) : -1;
+  if (index < 0) index = Math.min(lib.focus, lib.entries.length - 1);
+  if (index >= 0) focusCard(index, false);
+}
+
+function focusCard(index, smooth = true) {
+  const cards = ui.libStrip.children;
+  if (!cards.length) return;
+  index = Math.max(0, Math.min(cards.length - 1, index));
+  lib.focus = index;
+  for (const card of cards) card.classList.remove('is-focus');
+  const card = cards[index];
+  card.classList.add('is-focus');
+  card.focus({ preventScroll: true });
+  // Como no 360: o card focado fica perto da esquerda, com o anterior aparecendo pela metade.
+  const strip = ui.libStrip;
+  const pad = parseFloat(getComputedStyle(strip).paddingLeft) || 0;
+  const step = card.offsetWidth + (parseFloat(getComputedStyle(strip).columnGap) || 0);
+  const target = Math.max(0, card.offsetLeft - pad - (index > 0 ? step * .55 : 0));
+  strip.scrollTo({ left: target, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+function setLibStatus(text, isError = false) {
+  ui.libStatus.textContent = text;
+  ui.libStatus.classList.toggle('error', isError);
+}
+
+async function refreshLibrary(keepKey) {
+  lib.entries = sortEntries(await libraryEntries());
+  renderLibrary(keepKey);
+  updateCounts();
+}
+
+async function openLibrary() {
+  if (lib.open || ui.dash.classList.contains('busy')) return;
+  lib.open = true;
+  lib.returnFocus = document.activeElement;
+  ui.library.hidden = false;
+  setLibStatus('');
+  await refreshLibrary();
+}
+
+function closeLibrary() {
+  if (!lib.open || lib.busy) return;
+  lib.open = false;
+  ui.library.hidden = true;
+  const back = lib.returnFocus;
+  if (back && back.classList && back.classList.contains('tile')) focusTile(back);
+}
+
+function cycleSort() {
+  const index = LIB_SORTS.findIndex((s) => s.key === lib.sort);
+  lib.sort = LIB_SORTS[(index + 1) % LIB_SORTS.length].key;
+  try { localStorage.setItem(LIB_SORT_KEY, lib.sort); } catch {}
+  const key = lib.entries[lib.focus] && lib.entries[lib.focus].key;
+  lib.entries = sortEntries(lib.entries);
+  renderLibrary(key);
+}
+
+async function downloadEntry(entry, card) {
+  const { game } = entry;
+  const bar = card.querySelector('.card-progress i');
+  const meta = card.querySelector('.card-meta');
+  lib.busy = true;
+  card.classList.add('downloading');
+  setLibStatus(`Baixando ${game.title}…`);
+  try {
+    await downloadToOpfs(game.url, LIB_FILE_PREFIX + game.id, LIB_META_PREFIX + game.id,
+      { name: game.fileName, title: game.title, system: game.system }, game.size,
+      (done, total) => {
+        const pct = total ? Math.min(100, Math.floor((done / total) * 100)) : 0;
+        bar.style.width = total ? `${pct}%` : '100%';
+        meta.textContent = total ? `Baixando… ${pct}% de ${formatSize(total)}` : `Baixando… ${formatSize(done)}`;
+      });
+    entry.stored = true;
+    card.classList.add('stored');
+    meta.textContent = entryMeta(entry);
+    setLibStatus('');
+    return true;
+  } catch (err) {
+    console.warn(err);
+    meta.textContent = entryMeta(entry);
+    setLibStatus(`Não deu para baixar ${game.title}: ${err && err.message || err}`, true);
+    return false;
+  } finally {
+    card.classList.remove('downloading');
+    lib.busy = false;
+    updateCounts();
+  }
+}
+
+// Entrada sem arquivo no catálogo: o usuário escolhe a própria cópia, que fica guardada no card.
+// Returns { stored } when it went to the OPFS, { file } when it only fits in this session, or null.
+async function importEntryFile(entry, card) {
+  const { game } = entry;
+  const file = await pickFile(game.system === 'ps2' ? PS2_ACCEPT : PS1_ACCEPT);
+  if (!file) return null;
+  if (extensionOf(file.name) === '.cue') {
+    alert('Um .cue sozinho não serve: ele só aponta para os .bin. Compacte o .cue e os .bin juntos num ZIP, ou use CHD/PBP.');
+    return null;
+  }
+  const bar = card.querySelector('.card-progress i');
+  const meta = card.querySelector('.card-meta');
+  const progress = { hidden: true, set value(v) { bar.style.width = `${Math.round(v * 100)}%`; } };
+  lib.busy = true;
+  card.classList.add('downloading');
+  setLibStatus(`Guardando ${file.name}…`);
+  try {
+    const ok = await storeFile(file, LIB_FILE_PREFIX + game.id, LIB_META_PREFIX + game.id,
+      { title: game.title, system: game.system }, progress, (text) => { meta.textContent = text; });
+    if (!ok) {
+      setLibStatus('Sem espaço para guardar no navegador. O jogo vai rodar só nesta sessão.');
+      return { file };
+    }
+    entry.stored = true;
+    entry.size = file.size;
+    card.classList.add('stored');
+    meta.textContent = entryMeta(entry);
+    setLibStatus('');
+    return { stored: true };
+  } catch (err) {
+    console.warn(err);
+    setLibStatus('Não deu para guardar no navegador. O jogo vai rodar só nesta sessão.');
+    return { file };
+  } finally {
+    card.classList.remove('downloading');
+    lib.busy = false;
+    updateCounts();
+  }
+}
+
+async function activateEntry(entry, card) {
+  if (!entry || lib.busy) return;
+  if (entry.local) {
+    lib.busy = false;
+    closeLibrary();
+    if (entry.system === 'ps2') bootPs2(state.image);
+    else bootPs1(state.ps1Game);
+    return;
+  }
+  const { game } = entry;
+  if (!entry.stored && !game.url) {
+    const result = await importEntryFile(entry, card);
+    if (!result) return;
+    if (result.file) {
+      const { file } = result;
+      closeLibrary();
+      if (game.system === 'ps2') bootPs2({ source: { file }, bootName: bootNameFor(file.name), name: file.name, size: file.size, temporary: true });
+      else bootPs1({ file, name: file.name, size: file.size, temporary: true });
+      return;
+    }
+  } else if (!entry.stored && !(await downloadEntry(entry, card))) {
+    return;
+  }
+  const opfsName = LIB_FILE_PREFIX + game.id;
+  const stored = await findStored(opfsName, LIB_META_PREFIX + game.id);
+  if (!stored) { setLibStatus('A cópia baixada sumiu do navegador. Tente baixar de novo.', true); refreshLibrary(entry.key); return; }
+  closeLibrary();
+  if (game.system === 'ps2') {
+    bootPs2({ source: { opfsName }, bootName: bootNameFor(stored.meta.name), name: stored.meta.name, size: stored.meta.size });
+  } else {
+    bootPs1({ file: new File([stored.file], stored.meta.name), name: stored.meta.name, size: stored.meta.size });
+  }
+}
+
+async function removeEntry(entry) {
+  if (!entry || lib.busy) return;
+  if (entry.local) {
+    if (!confirm(`Apagar ${entry.detail} do navegador? Os saves ficam guardados.`)) return;
+    if (entry.system === 'ps2') { await forgetStored(IMAGE_FILE, META_KEY); state.image = null; setImageInfo(); }
+    else { await forgetStored(PS1_IMAGE_FILE, PS1_IMAGE_KEY); state.ps1Game = null; setPs1Info(); }
+  } else {
+    if (!entry.stored) { setLibStatus(`${entry.title} não tem cópia guardada no navegador.`); return; }
+    if (!confirm(`Apagar a cópia de ${entry.title} do navegador? Dá para baixar de novo depois.`)) return;
+    await forgetStored(LIB_FILE_PREFIX + entry.game.id, LIB_META_PREFIX + entry.game.id);
+  }
+  setLibStatus(`${entry.title} removido do navegador.`);
+  await refreshLibrary(entry.local ? null : entry.key);
+}
+
+function libraryKey(event) {
+  switch (event.key) {
+    case 'ArrowLeft': focusCard(lib.focus - 1); break;
+    case 'ArrowRight': focusCard(lib.focus + 1); break;
+    case 'Home': focusCard(0); break;
+    case 'PageUp': focusCard(lib.focus - 5); break;
+    case 'PageDown': focusCard(lib.focus + 5); break;
+    case 'End': focusCard(lib.entries.length - 1); break;
+    case 'Enter': case ' ': activateEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]); break;
+    case 'x': case 'X': case 'Delete': removeEntry(lib.entries[lib.focus]); break;
+    case 'y': case 'Y': cycleSort(); break;
+    case 'Escape': case 'Backspace': closeLibrary(); break;
+    default: return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Entrada: teclado, mouse e controle
+
+function setupInput() {
+  window.addEventListener('keydown', (event) => {
+    if (event.target && event.target.tagName === 'INPUT') return;
+    if (lib.open) {
+      if (libraryKey(event)) event.preventDefault();
+      return;
+    }
+    if (ui.dash.hidden) return;
+    const busy = ui.dash.classList.contains('busy');
+    switch (event.key) {
+      case 'ArrowLeft': moveFocus(-1, 0); break;
+      case 'ArrowRight': moveFocus(1, 0); break;
+      case 'ArrowUp': moveFocus(0, -1); break;
+      case 'ArrowDown': moveFocus(0, 1); break;
+      case 'Enter': case ' ':
+        // preventDefault cancela o clique nativo do botão, então o tile só é ativado uma vez.
+        if (event.target && event.target.matches && event.target.matches('#dash-nav .tab')) return;
+        if (!busy) activateFocused();
+        break;
+      case 'q': case 'Q': stepPane(-1); break;
+      case 'e': case 'E': stepPane(1); break;
+      default: return;
+    }
+    event.preventDefault();
+  });
+
+  // Espaço dispara o clique nativo no keyup; cancela para não ativar duas vezes.
+  window.addEventListener('keyup', (event) => {
+    if (event.key === ' ' && event.target && event.target.classList &&
+        (event.target.classList.contains('tile') || event.target.classList.contains('card'))) event.preventDefault();
+  });
+
+  // Mouse: passar por cima foca o tile (só na aba aberta). Clicar na aba que aparece na borda abre a aba.
+  for (const tile of ui.dash.querySelectorAll('button.tile')) {
+    tile.addEventListener('pointerenter', () => {
+      if (tile.disabled || ui.dash.classList.contains('busy')) return;
+      if (tile.closest('.pane').classList.contains('is-active')) focusTile(tile);
+    });
+  }
+  for (const pane of ui.dash.querySelectorAll('.pane')) {
+    pane.addEventListener('click', (event) => {
+      if (pane.classList.contains('is-active')) return;
+      event.stopPropagation();
+      event.preventDefault();
+      showPane(pane.dataset.pane);
+    }, true);
+  }
+  for (const tab of ui.dash.querySelectorAll('#dash-nav .tab')) {
+    tab.onclick = () => showPane(tab.dataset.pane);
+  }
+  ui.libSort.onclick = cycleSort;
+
+  // Controle (Gamepad API): d-pad/analógico navega, A seleciona, B volta, X remove, Y ordena, LB/RB trocam de aba.
+  const held = new Set();
+  let lastMove = 0;
+  let polling = false;
+  const poll = () => {
+    if (ui.dash.hidden && !lib.open) { polling = false; return; }
+    requestAnimationFrame(poll);
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = [...pads].find((p) => p && p.connected);
+    if (!pad) return;
+    const now = performance.now();
+    const pressed = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    const edge = (i) => { const on = pressed(i); const was = held.has(i); if (on) held.add(i); else held.delete(i); return on && !was; };
+    const ax = pad.axes[0] || 0;
+    const ay = pad.axes[1] || 0;
+    const dx = pressed(15) || ax > 0.5 ? 1 : pressed(14) || ax < -0.5 ? -1 : 0;
+    const dy = pressed(13) || ay > 0.5 ? 1 : pressed(12) || ay < -0.5 ? -1 : 0;
+    const a = edge(0), b = edge(1), x = edge(2), y = edge(3), lb = edge(4), rb = edge(5);
+    const move = (dx || dy) && now - lastMove > 200;
+    if (move) lastMove = now;
+    else if (!dx && !dy) lastMove = 0;
+
+    if (lib.open) {
+      if (move && dx) focusCard(lib.focus + dx);
+      if (a) activateEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]);
+      if (b) closeLibrary();
+      if (x) removeEntry(lib.entries[lib.focus]);
+      if (y) cycleSort();
+      if (lb) focusCard(lib.focus - 5);
+      if (rb) focusCard(lib.focus + 5);
+      return;
+    }
+    if (ui.dash.classList.contains('busy')) return;
+    if (move) moveFocus(dx, dx ? 0 : dy);
+    if (a) activateFocused();
+    if (lb) stepPane(-1);
+    if (rb) stepPane(1);
+  };
+  const startPolling = () => { if (!polling) { polling = true; requestAnimationFrame(poll); } };
+  window.addEventListener('gamepadconnected', () => { updatePads(); startPolling(); });
+  window.addEventListener('gamepaddisconnected', updatePads);
+  if (navigator.getGamepads && [...navigator.getGamepads()].some((p) => p)) startPolling();
+  // Reabrir a biblioteca depois que o polling parou (ex.: dash escondido) volta a ouvir o controle.
+  ui.library.addEventListener('focusin', startPolling);
+  ui.dash.addEventListener('focusin', startPolling);
+}
 
 // ---------------------------------------------------------------------------
 
 async function main() {
-  setupDashInput();
-  loadAvatar();
+  setupInput();
+  startClock();
+  updatePads();
+  try { lib.sort = localStorage.getItem(LIB_SORT_KEY) || 'titulos'; } catch {}
   setStretch(localStorage.getItem(STRETCH_KEY) === '1');
-  focusTile(ui.play);
+  showPane('ps2');
 
   if (!window.crossOriginIsolated) {
     fail('O servidor não enviou os headers COOP/COEP. Sem eles o emulador não roda.');
@@ -728,58 +1349,35 @@ async function main() {
   }
 
   // Start downloading/compiling the emulator while we look for the disc image.
-  let emulatorReady = false;
-  const emulator = createEmulator();
-  emulator.then(() => { emulatorReady = true; if (!ui.dash.classList.contains('busy')) setStatus('Pronto. Aperte Jogar.'); })
+  state.emulator = createEmulator();
+  state.emulator
+    .then(() => { state.emulatorReady = true; if (!ui.dash.classList.contains('busy')) setStatus('Pronto. Aperte Jogar.'); })
     .catch((err) => { console.error(err); setStatus('Erro ao carregar o emulador: ' + (err && err.message || err), true); });
 
   setStatus('Carregando o emulador…');
-  let image = await findStoredImage();
-  setImageInfo(image);
-  let module = null;
+  const [image, ps1Game, ps1Bios] = await Promise.all([
+    findStoredImage(),
+    findStoredPs1(PS1_IMAGE_FILE, PS1_IMAGE_KEY),
+    findStoredPs1(PS1_BIOS_FILE, PS1_BIOS_KEY),
+    loadCatalog(),
+  ]);
+  Object.assign(state, { image, ps1Game, ps1Bios });
+  setImageInfo();
+  setPs1Info();
+  updateCounts();
 
-  const chooseImage = async (file) => {
-    if (ui.dash.classList.contains('busy')) return;
-    if (!file) file = await pickFile(PS2_ACCEPT);
-    if (!file) return;
-    if (image && !image.temporary && !confirm(`Trocar a ISO guardada (${image.name}) por ${file.name}?`)) return;
-    const next = await acceptImageFile(file);
-    if (next) { image = next; setImageInfo(image); }
-    focusTile(ui.play);
+  // --- ps2 ---
+  ui.play.onclick = async () => {
+    if (!state.image) { await chooseImage(); if (!state.image) return; }
+    bootPs2(state.image);
   };
-
-  const boot = async () => {
-    if (ui.dash.classList.contains('busy')) return;
-    if (!image) { await chooseImage(); if (!image) return; }
-    ui.dash.classList.add('busy');
-    ui.play.classList.add('booting');
-    try {
-      setStatus(emulatorReady ? 'Iniciando…' : 'Carregando o emulador…');
-      module = await emulator;
-      setStatus('Abrindo a imagem do jogo…');
-      await startDiscWorker(module, image.source);
-    } catch (err) {
-      console.error(err);
-      fail('Erro: ' + (err && err.message || err));
-      return;
-    }
-
-    if (dash.avatar) dash.avatar.stop();
-    ui.dash.hidden = true;
-    fullscreenOnFirstInput();
-    module.bootDiscImage(image.bootName);
-    startStats(module);
-    startSaveSync(module);
-    setupToolbar(module);
-  };
-
-  ui.play.onclick = boot;
   ui.iso.onclick = () => chooseImage();
-  $('t-help').onclick = () => showPane('controles');
-  $('t-about').onclick = () => showPane('sobre');
-  $('t-ps1').onclick = () => showPane('ps1');
+  $('t-help').onclick = () => showPane('config');
+  $('t-stretch').onclick = toggleStretch;
+  $('t-fullscreen').onclick = toggleFullscreen;
+  $('t-lib-ps2').onclick = openLibrary;
   $('t-export').onclick = async () => {
-    try { exportSaves(await emulator); }
+    try { exportSaves(await state.emulator); }
     catch (err) { alert('O emulador ainda não carregou: ' + (err && err.message || err)); }
   };
   $('t-import').onclick = () => {
@@ -788,91 +1386,52 @@ async function main() {
       if (!file) return;
       try {
         setStatus('Importando save…');
-        await importSaves(await emulator, file);
+        await importSaves(await state.emulator, file);
       } catch (err) { alert('Save inválido: ' + err.message); setStatus('Pronto. Aperte Jogar.'); }
     };
     ui.importFile.click();
   };
-  $('t-fullscreen').onclick = toggleFullscreen;
-  $('t-stretch').onclick = () => setStretch(!document.body.classList.contains('stretch'));
-
-  // --- PlayStation 1 ---------------------------------------------------------
-  let ps1Game = await findStoredPs1(PS1_IMAGE_FILE, PS1_IMAGE_KEY);
-  let ps1Bios = await findStoredPs1(PS1_BIOS_FILE, PS1_BIOS_KEY);
-  setPs1Info(ps1Game, ps1Bios);
-
-  const choosePs1Game = async (file) => {
-    if (ui.dash.classList.contains('busy')) return;
-    if (!file) file = await pickFile(PS1_ACCEPT);
-    if (!file) return;
-    if (extensionOf(file.name) === '.cue') {
-      alert('Um .cue sozinho não serve: ele só aponta para os .bin. Compacte o .cue e os .bin juntos num ZIP, ou use CHD/PBP.');
-      return;
-    }
-    if (ps1Game && !ps1Game.temporary && !confirm(`Trocar o jogo guardado (${ps1Game.name}) por ${file.name}?`)) return;
-    ui.ps1Iso.classList.remove('ready');
-    ui.ps1IsoHint.textContent = file.name;
-    const next = await acceptPs1File(file, PS1_IMAGE_FILE, PS1_IMAGE_KEY, ui.ps1Progress,
-      (text) => { ui.ps1IsoMain.textContent = text; }, 'o jogo');
-    if (next) ps1Game = next;
-    setPs1Info(ps1Game, ps1Bios);
-    focusTile(ui.ps1Play);
+  $('t-forget').onclick = () => {
+    if (!state.image) { chooseImage(); return; }
+    forgetAndReload(state.module);
   };
 
-  const choosePs1Bios = async (file) => {
-    if (ui.dash.classList.contains('busy')) return;
-    if (!file) file = await pickFile('.bin,.rom');
-    if (!file) return;
-    if (file.size !== PS1_BIOS_SIZE && !confirm(`Uma BIOS de PS1 tem 512 KB e ${file.name} tem ${formatSize(file.size)}. Usar mesmo assim?`)) return;
-    ui.ps1BiosLabel.textContent = 'Guardando…';
-    const next = await acceptPs1File(file, PS1_BIOS_FILE, PS1_BIOS_KEY, ui.ps1Progress, () => {}, 'a BIOS');
-    if (next) ps1Bios = next;
-    setPs1Info(ps1Game, ps1Bios);
-    focusTile(ui.ps1Play);
+  // --- ps1 ---
+  ui.ps1Play.onclick = async () => {
+    if (!state.ps1Game) { await choosePs1Game(); if (!state.ps1Game) return; }
+    bootPs1(state.ps1Game);
   };
-
-  const bootPs1 = async () => {
-    if (ui.dash.classList.contains('busy')) return;
-    if (!ps1Game) { await choosePs1Game(); if (!ps1Game) return; }
-    if (!ps1Bios && !confirm('Nenhuma BIOS escolhida. O PCSX-ReARMed usa uma BIOS simulada, mas vários jogos travam ou perdem o save sem a original. Continuar sem BIOS?')) {
-      await choosePs1Bios();
-      if (!ps1Bios) return;
-    }
-    ui.dash.classList.add('busy');
-    ui.ps1Play.classList.add('booting');
-    setStatus('Carregando o PCSX-ReARMed…');
-    if (dash.avatar) dash.avatar.stop();
-    ui.stage.hidden = true;        // o canvas do PS2 fica fora do caminho
-    ui.ps1Stage.hidden = false;
-    ui.dash.hidden = true;
-    fullscreenOnFirstInput();
-    startPs1(ps1Game, ps1Bios);
-  };
-
-  ui.ps1Play.onclick = bootPs1;
   ui.ps1Iso.onclick = () => choosePs1Game();
   ui.ps1Bios.onclick = () => choosePs1Bios();
-  $('t-ps1-back').onclick = () => showPane('inicio');
-  $('t-ps1-help').onclick = () => showPane('controles');
-  $('t-ps1-about').onclick = () => showPane('sobre');
+  $('t-ps1-help').onclick = () => showPane('config');
+  $('t-ps1-about').onclick = () => showPane('config');
   $('t-ps1-fullscreen').onclick = toggleFullscreen;
+  $('t-lib-ps1').onclick = openLibrary;
   $('t-ps1-forget').onclick = async () => {
-    if (!ps1Game) { choosePs1Game(); return; }
-    if (!confirm(`Apagar ${ps1Game.name} do navegador? Os saves ficam guardados.`)) return;
+    const game = state.ps1Game;
+    if (!game) { choosePs1Game(); return; }
+    if (!confirm(`Apagar ${game.name} do navegador? Os saves ficam guardados.`)) return;
     await forgetStored(PS1_IMAGE_FILE, PS1_IMAGE_KEY);
-    ps1Game = null;
-    setPs1Info(ps1Game, ps1Bios);
+    state.ps1Game = null;
+    setPs1Info();
+    updateCounts();
   };
   $('t-ps1-forget-bios').onclick = async () => {
-    if (!ps1Bios) { choosePs1Bios(); return; }
-    if (!confirm(`Apagar a BIOS ${ps1Bios.name} do navegador?`)) return;
+    const bios = state.ps1Bios;
+    if (!bios) { choosePs1Bios(); return; }
+    if (!confirm(`Apagar a BIOS ${bios.name} do navegador?`)) return;
     await forgetStored(PS1_BIOS_FILE, PS1_BIOS_KEY);
-    ps1Bios = null;
-    setPs1Info(ps1Game, ps1Bios);
+    state.ps1Bios = null;
+    setPs1Info();
   };
 
+  // --- configurações ---
+  $('t-cfg-fullscreen').onclick = toggleFullscreen;
+  $('t-cfg-stretch').onclick = toggleStretch;
+  $('t-cfg-storage').onclick = openLibrary;
+
   // Arrastar um arquivo para qualquer lugar do menu cai no tile certo da aba aberta.
-  // Na aba PS1, um arquivo de exatamente 512 KB é tratado como BIOS.
+  // Na aba ps1, um arquivo de exatamente 512 KB é tratado como BIOS.
   const dropTarget = () => (currentPane() === 'ps1' ? ui.ps1Iso : ui.iso);
   let dragDepth = 0;
   ui.dash.addEventListener('dragenter', (event) => { event.preventDefault(); dragDepth++; dropTarget().classList.add('drag'); });

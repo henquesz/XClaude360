@@ -1,179 +1,318 @@
-/* Menu inicial no estilo do dashboard do Xbox 360 (Metro): avatar à esquerda, tiles à direita. */
+/* Dashboard no estilo do Xbox 360 (Metro, 2011+): fundo cinza claro, abas em minúsculas,
+   grade de tiles verdes centralizada e a próxima aba aparecendo cortada na borda direita. */
 
 #dash {
-  --u: clamp(68px, min(10.5vw, 14vh), 124px); /* lado de um tile pequeno */
-  --gap: 6px;
-  --green: #1a8e1a;
-  --green-hi: #27a927;
-  --green-lo: #137313;
-  position: fixed; inset: 0; z-index: 10;
-  display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: max-content;
-  justify-content: center; align-content: stretch;
-  padding: 5vh 7vw 4vh;
+  --cw: min(14.6vw, 27vh);                       /* largura de um tile pequeno */
+  --ch: calc(var(--cw) * .74);                   /* altura de um tile pequeno (mesma proporção do 360) */
+  --gap: max(4px, calc(var(--cw) * .035));
+  --gw: calc(var(--cw) * 5 + var(--gap) * 4);    /* largura da grade */
+  --gh: calc(var(--ch) * 3 + var(--gap) * 2);    /* altura da grade */
+  --pane-gap: calc(var(--cw) * .3);
+  --pane: 0;
+  --green-hi: #1aa41a;
+  --green-lo: #0f8c0f;
+  --label: clamp(10px, calc(var(--cw) * .074), 18px);
+  position: fixed; inset: 0; z-index: 10; overflow: hidden;
   background:
-    radial-gradient(120% 80% at 20% 0%, rgba(255,255,255,.07), transparent 60%),
-    linear-gradient(180deg, #3b3b3b 0%, #1f1f1f 55%, #0c0c0c 100%);
+    radial-gradient(70% 45% at 28% 88%, rgba(255,255,255,.16), transparent 70%),
+    linear-gradient(112deg, transparent 38%, rgba(255,255,255,.1) 48%, transparent 60%),
+    radial-gradient(120% 95% at 50% 30%, #dcdcdc 0%, #bdbdbd 36%, #959595 70%, #6a6a6a 100%);
   color: #fff;
+  font-family: "Segoe UI", "Segoe UI Web (West European)", system-ui, -apple-system, Roboto, sans-serif;
   user-select: none;
 }
 #dash[hidden] { display: none; }
+#dash button { font-family: inherit; }
 
-/* --- Abas no topo ------------------------------------------------------- */
-#dash-nav { display: flex; gap: 34px; margin-bottom: 2vh; align-self: end; }
-#dash-nav .tab {
-  margin: 0; padding: 2px 0; border: 0; border-radius: 0; background: none;
-  font-size: 22px; font-weight: 300; letter-spacing: .01em; color: #8d8d8d; cursor: pointer;
-  text-shadow: 0 1px 2px rgba(0,0,0,.5);
+/* --- Barra de status (canto superior direito) --------------------------- */
+#dash-status {
+  position: absolute; top: max(14px, calc(50vh - var(--gh) / 2 - var(--ch) * .95));
+  right: max(16px, calc((100vw - var(--gw)) / 2));
+  display: flex; align-items: center; gap: 1.3em;
+  font-size: clamp(12px, calc(var(--cw) * .078), 18px); color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,.4);
 }
-#dash-nav .tab:hover { color: #d8d8d8; background: none; }
-#dash-nav .tab.is-active { color: #fff; }
+#dash-status span { display: inline-flex; align-items: center; gap: .35em; }
+#dash-status svg { width: 1.25em; height: 1.25em; fill: #fff; filter: drop-shadow(0 1px 1px rgba(0,0,0,.35)); }
+#dash-status b { font-weight: 400; }
+
+/* --- Abas + grade, centralizadas ------------------------------------------ */
+#dash-main {
+  position: absolute; left: 50%; top: 50%;
+  width: var(--gw);
+  transform: translate(-50%, calc(-50% - var(--ch) * .12));
+}
+
+#dash-nav { display: flex; gap: calc(var(--cw) * .2); margin: 0 0 calc(var(--ch) * .12) 1px; }
+#dash-nav .tab {
+  margin: 0; padding: 0; border: 0; background: none; cursor: pointer;
+  font-size: clamp(18px, calc(var(--cw) * .135), 36px); font-weight: 400; line-height: 1.15; letter-spacing: .005em;
+  color: rgba(255,255,255,.74); text-shadow: 0 1px 3px rgba(0,0,0,.4);
+  transition: color .2s;
+}
+#dash-nav .tab:hover { color: rgba(255,255,255,.85); }
+#dash-nav .tab.is-active { color: #fff; font-weight: 600; }
 #dash-nav .tab:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
 
-/* --- Corpo: avatar + painel --------------------------------------------- */
-#dash-body { display: flex; align-items: flex-end; justify-content: flex-start; gap: 5vw; min-height: 0; align-self: center; }
-
-#avatar-wrap {
-  position: relative; flex: none;
-  width: calc(var(--u) * 3.1);
-  height: calc(var(--u) * 3 + var(--gap) * 2 + 110px);
-  margin-bottom: -10px;
-  cursor: pointer;
+#dash-viewport { position: relative; width: var(--gw); height: var(--gh); }
+#dash-track {
+  display: flex; gap: var(--pane-gap);
+  transform: translateX(calc(var(--pane) * -1 * (var(--gw) + var(--pane-gap))));
+  transition: transform .38s cubic-bezier(.2, .75, .25, 1);
 }
-#avatar { display: block; width: 100%; height: 100%; }
-#avatar-tag {
-  position: absolute; left: 4px; top: 0; display: flex; align-items: center; gap: 7px;
-  font-size: 15px; font-weight: 300; color: #e8e8e8; pointer-events: none;
-}
-#avatar-tag .dot { width: 9px; height: 9px; border-radius: 50%; background: #35d035; box-shadow: 0 0 6px #35d035; }
+.pane { flex: none; width: var(--gw); height: var(--gh); transition: opacity .3s; }
+.pane.is-before { opacity: 0; pointer-events: none; }
+.pane.is-after { opacity: .5; }
+.pane.is-after .tile { cursor: pointer; }
 
-.pane { display: none; }
-.pane.is-active { display: block; }
-
-/* Painéis de texto (controles, sobre) ocupam a mesma largura do grid. */
-.pane[data-pane="controles"], .pane[data-pane="sobre"] {
-  width: calc(var(--u) * 5 + var(--gap) * 4);
-  min-height: calc(var(--u) * 3 + var(--gap) * 2);
-  padding: 18px 22px; background: rgba(0,0,0,.35); border-left: 4px solid var(--green);
-  font-size: 15px; font-weight: 300; line-height: 1.5;
-}
-.pane h2 { margin: 0 0 12px; font-size: 26px; font-weight: 300; }
-.pane p { margin: 0 0 10px; color: #d6d6d6; }
-.pane .keys { font-size: 14px; }
-.pane .keys td { padding: 3px 18px 3px 0; }
-.pane-note { margin-top: 14px; color: #9a9a9a; font-size: 13px; }
-
-/* --- Grid de tiles -------------------------------------------------------- */
+/* --- Tiles ------------------------------------------------------------------ */
 .tiles {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(5, var(--u));
-  grid-template-rows: repeat(3, var(--u));
+  grid-template-columns: repeat(5, var(--cw));
+  grid-template-rows: repeat(3, var(--ch));
   gap: var(--gap);
 }
 
 .tile {
-  position: relative; margin: 0; padding: 9px 10px; border: 0; border-radius: 0;
+  position: relative; margin: 0; padding: calc(var(--ch) * .07) calc(var(--cw) * .055);
+  border: 0; border-radius: 0; outline: 0; overflow: hidden;
   display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start;
   background: linear-gradient(180deg, var(--green-hi), var(--green-lo));
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 2px 6px rgba(0,0,0,.35);
-  color: #fff; text-align: left; cursor: pointer; overflow: hidden;
-  transition: transform .12s ease-out, filter .12s ease-out;
-  outline: 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,.22);
+  color: #fff; text-align: left; font: inherit; cursor: pointer;
+  transition: transform .14s ease-out, filter .14s ease-out, box-shadow .14s ease-out;
 }
-.tile > svg { position: absolute; left: 50%; top: 40%; width: 40%; height: 40%; transform: translate(-50%, -50%);
-  fill: #fff; filter: drop-shadow(0 1px 1px rgba(0,0,0,.3)); }
-.tile > span { font-size: 12px; line-height: 1.2; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
-.tile:hover { background: linear-gradient(180deg, var(--green-hi), var(--green-lo)); }
-.tile:hover, .tile:focus, .tile.is-focus {
-  transform: scale(1.06); z-index: 2; filter: brightness(1.12);
-  box-shadow: inset 0 0 0 3px #fff, 0 6px 18px rgba(0,0,0,.5);
+.tile > svg { position: absolute; left: 50%; top: 41%; width: 30%; height: 38%; transform: translate(-50%, -50%); fill: #fff; }
+.tile > .label { font-size: var(--label); line-height: 1.2; text-shadow: 0 1px 1px rgba(0,0,0,.25); }
+.pane.is-active .tile.is-focus {
+  transform: scale(1.045); z-index: 2; filter: brightness(1.13);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.95), 0 8px 18px rgba(0,0,0,.32);
 }
-.tile[disabled] { cursor: default; filter: saturate(.4) brightness(.65); }
-.tile[disabled]:hover { transform: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+.tile[disabled] { cursor: default; filter: saturate(.3) brightness(.8); }
 
-/* Tile grande "Jogar" */
-.tile-hero {
+.tile-bios { --green-hi: #6d6d6d; --green-lo: #4a4a4a; }
+.tile-bios.ready { --green-hi: #1aa41a; --green-lo: #0f8c0f; }
+
+/* Tile grande "Jogar" do PS2: arte de cidade à noite, com o título em letreiro neon */
+.tile-hero { padding: 0; }
+.hero-ps2 {
   background:
-    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
-    radial-gradient(90% 70% at 70% 20%, rgba(90,220,90,.35), transparent 60%),
-    linear-gradient(160deg, #1f9a1f 0%, #0d5e0d 55%, #073a07 100%);
+    radial-gradient(60% 75% at 78% 30%, rgba(255,40,190,.42), transparent 62%),
+    radial-gradient(55% 70% at 18% 25%, rgba(20,200,255,.34), transparent 64%),
+    linear-gradient(180deg, #06071a 0%, #150b33 55%, #050409 100%);
 }
-.tile-hero:hover { background:
-    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
-    radial-gradient(90% 70% at 70% 20%, rgba(90,220,90,.35), transparent 60%),
-    linear-gradient(160deg, #1f9a1f 0%, #0d5e0d 55%, #073a07 100%); }
-.hero-art { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
-.hero-play { width: 34%; height: 34%; fill: #fff; margin-bottom: 12%; filter: drop-shadow(0 4px 10px rgba(0,0,0,.45)); }
-.hero-title { font-size: 24px; font-weight: 300; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
-.hero-sub { font-size: 12px; color: rgba(255,255,255,.8); margin-top: 2px; }
-.tile-hero.booting .hero-play { display: none; }
-.tile-hero.booting .hero-art::after {
-  content: ""; width: 24%; aspect-ratio: 1; margin-bottom: 12%; border-radius: 50%;
-  border: 4px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite;
+.tile > svg.hero-scene { left: 0; top: 0; width: 100%; height: 100%; transform: none; fill: none; }
+.nfs-logo {
+  position: absolute; left: 0; right: 0; top: 18%;
+  display: flex; flex-direction: column; align-items: center; transform: skewX(-12deg);
+  line-height: .92; pointer-events: none;
+}
+.nfs-logo small { font-size: calc(var(--cw) * .07); font-weight: 600; letter-spacing: .32em; color: #cfe9ff; text-shadow: 0 0 6px rgba(25,211,255,.8); }
+.nfs-logo strong {
+  font-size: calc(var(--cw) * .2); font-weight: 900; letter-spacing: .02em; font-style: italic;
+  background: linear-gradient(180deg, #fff6b0 0%, #ffd23a 45%, #ff7a00 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 6px rgba(255,140,0,.55)) drop-shadow(0 2px 0 rgba(0,0,0,.6));
+}
+.nfs-logo em {
+  font-size: calc(var(--cw) * .26); font-weight: 900; font-style: italic; color: #19d3ff; margin-top: -.08em;
+  text-shadow: 0 0 10px rgba(25,211,255,.9), 0 0 2px #fff;
+}
+.hero-caption {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  padding: calc(var(--ch) * .22) calc(var(--cw) * .055) calc(var(--ch) * .07);
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.72));
+  font-size: var(--label); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hero-caption b { font-weight: 600; }
+
+/* Tile grande "Jogar" do PS1: cinza do console com os quatro símbolos */
+.hero-ps1 {
+  background:
+    radial-gradient(80% 70% at 30% 20%, rgba(255,255,255,.55), transparent 60%),
+    linear-gradient(160deg, #dcdce0 0%, #b9b9c0 55%, #8f8f97 100%);
+}
+.ps1-art {
+  position: absolute; left: 0; right: 0; top: 16%;
+  display: flex; flex-direction: column; align-items: center; gap: calc(var(--ch) * .1);
+}
+.ps1-art svg { width: 62%; height: auto; filter: drop-shadow(0 1px 0 rgba(255,255,255,.6)); }
+.ps1-word { font-size: calc(var(--cw) * .17); font-weight: 700; font-style: italic; letter-spacing: -.01em; color: #2b2b33; }
+
+/* Tile escuro (como o tile de anúncio do 360): imagem do jogo */
+.tile-dark {
+  justify-content: flex-end; gap: calc(var(--ch) * .03);
+  background: linear-gradient(180deg, #202020, #0b0b0b);
+  box-shadow: 0 1px 2px rgba(0,0,0,.3);
+}
+.tile-dark .dark-icon { position: absolute; left: 50%; top: 36%; width: 34%; height: 46%; transform: translate(-50%, -50%); fill: #3c3c3c; }
+.tile-dark.ready .dark-icon { fill: #1aa41a; }
+.tile-dark.drag { box-shadow: inset 0 0 0 3px #6cf, 0 8px 18px rgba(0,0,0,.4); }
+.dark-kicker { font-size: calc(var(--label) * .82); text-transform: uppercase; letter-spacing: .08em; color: #9a9a9a; }
+.dark-main { font-size: var(--label); line-height: 1.25; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark-hint { font-size: calc(var(--label) * .82); line-height: 1.3; color: #a8a8a8; }
+.tile-dark progress { width: 100%; height: 6px; margin-top: 4px; accent-color: #1aa41a; }
+.tile-dark progress[hidden] { display: none; }
+
+/* Tiles de texto na aba de configurações */
+.tile-info {
+  cursor: default; justify-content: flex-start; padding: calc(var(--ch) * .1) calc(var(--cw) * .08);
+  background: linear-gradient(180deg, rgba(20,20,20,.86), rgba(8,8,8,.9));
+  font-size: calc(var(--label) * .92); line-height: 1.45; color: #e2e2e2;
+}
+.tile-info h3 { margin: 0 0 .5em; font-size: calc(var(--label) * 1.45); font-weight: 300; color: #fff; }
+.tile-info p { margin: 0 0 .6em; }
+.tile-info .keys td { padding: .12em 1.1em .12em 0; }
+
+/* Carregando o jogo */
+.tile-hero.booting::after {
+  content: ""; position: absolute; left: 50%; top: 42%; z-index: 2;
+  width: calc(var(--cw) * .3); aspect-ratio: 1; margin-left: calc(var(--cw) * -.15); margin-top: calc(var(--cw) * -.15);
+  border-radius: 50%; border: 4px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* Tile grande da ISO (escuro, como o tile de texto do Xbox) */
-.tile-iso {
-  justify-content: flex-start; gap: 4px; padding: 12px 14px;
-  background: linear-gradient(180deg, #1c1c1c, #0f0f0f);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 2px 6px rgba(0,0,0,.35);
-}
-.tile-iso:hover { background: linear-gradient(180deg, #1c1c1c, #0f0f0f); }
-.tile-iso .iso-icon { position: static; width: 26px; height: 26px; transform: none; fill: #9a9a9a; margin-bottom: 2px; }
-.tile-iso.ready .iso-icon { fill: #35d035; }
-.iso-title { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #8a8a8a; }
-.iso-main { font-size: 15px; font-weight: 300; line-height: 1.3; word-break: break-word; }
-.iso-hint { font-size: 11px; color: #9a9a9a; line-height: 1.3; margin-top: auto; }
-.tile-iso.drag { box-shadow: inset 0 0 0 3px #6cf, 0 6px 18px rgba(0,0,0,.5); transform: scale(1.06); z-index: 2; }
-.tile-iso progress { width: 100%; height: 6px; margin-top: 6px; accent-color: #35d035; }
-.tile-iso progress[hidden] { display: none; }
-
-/* PlayStation 1: tiles com o azul do console */
-.tile-ps1, .tile-hero-ps1 { --green-hi: #2f6fd6; --green-lo: #1d4fa3; }
-.tile-hero-ps1 {
-  background:
-    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
-    radial-gradient(90% 70% at 70% 20%, rgba(120,170,255,.35), transparent 60%),
-    linear-gradient(160deg, #2f6fd6 0%, #1a3f85 55%, #0d2450 100%);
-}
-.tile-hero-ps1:hover { background:
-    repeating-linear-gradient(-28deg, rgba(255,255,255,.045) 0 3px, transparent 3px 22px),
-    radial-gradient(90% 70% at 70% 20%, rgba(120,170,255,.35), transparent 60%),
-    linear-gradient(160deg, #2f6fd6 0%, #1a3f85 55%, #0d2450 100%); }
-.tile-bios { --green-hi: #5a5a5a; --green-lo: #353535; }
-.tile-bios.ready { --green-hi: #27a927; --green-lo: #137313; }
-#dash.busy .tile:not(#t-play):not(#t-ps1-play) { filter: saturate(.5) brightness(.6); transform: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-
-/* Enquanto inicia, trava os tiles. */
 #dash.busy .tile { pointer-events: none; }
+#dash.busy .pane.is-active .tile:not(.booting) { filter: saturate(.5) brightness(.75); transform: none; box-shadow: none; }
 
-/* --- Rodapé --------------------------------------------------------------- */
-#dash-foot { display: flex; align-items: center; gap: 22px; margin-top: 3vh; font-size: 13px; color: #c4c4c4; align-self: start; }
-#dash-foot .hint { display: inline-flex; align-items: center; gap: 7px; }
-#dash-foot kbd {
-  font: 11px/1 "Segoe UI", system-ui, sans-serif; padding: 4px 6px; border-radius: 4px;
-  background: rgba(255,255,255,.12); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.2);
+/* --- Rodapé ------------------------------------------------------------------ */
+#dash-foot {
+  position: absolute; left: max(16px, calc((100vw - var(--gw)) / 2)); right: max(16px, calc((100vw - var(--gw)) / 2));
+  bottom: max(14px, calc(50vh - var(--gh) / 2 - var(--ch) * 1.05));
+  display: flex; align-items: center; gap: 1.6em;
+  font-size: clamp(12px, calc(var(--cw) * .07), 16px); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45);
 }
-#dash-foot kbd.abtn, #dash-foot kbd.bbtn {
-  width: 20px; height: 20px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-weight: 700; box-shadow: inset 0 -2px 0 rgba(0,0,0,.35);
+.hint { display: inline-flex; align-items: center; gap: .45em; white-space: nowrap; }
+.hint small { opacity: .75; }
+kbd[class^="btn-"] {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.45em; height: 1.45em; padding: 0 .25em; border-radius: 50%;
+  font: 700 .78em/1 "Segoe UI", system-ui, sans-serif; color: #fff; text-shadow: none;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.3);
 }
-#dash-foot kbd.abtn { background: #43b047; }
-#dash-foot kbd.bbtn { background: #d9413c; }
-#status { margin-left: auto; color: #9a9a9a; text-align: right; }
-#status.error { color: #ff7b7b; }
+.btn-a { background: radial-gradient(circle at 40% 35%, #7fd65c, #3a9a1a); }
+.btn-b { background: radial-gradient(circle at 40% 35%, #ff7a6e, #c4291f); }
+.btn-x { background: radial-gradient(circle at 40% 35%, #6aaeff, #1f63c4); }
+.btn-y { background: radial-gradient(circle at 40% 35%, #ffe066, #d9a400); color: #3a2c00 !important; }
+kbd.btn-bumper { border-radius: .35em; min-width: 2em; background: linear-gradient(180deg, #5a5a5a, #2c2c2c); font-size: .66em; }
+#status { margin-left: auto; text-align: right; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#status.error { color: #ffd0d0; opacity: 1; }
 
-@media (max-width: 820px) {
-  #dash { padding: 3vh 16px; grid-template-columns: 1fr; }
-  #dash-nav { gap: 22px; margin-bottom: 2vh; }
-  #dash-nav .tab { font-size: 18px; }
-  #dash-body { flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; overflow: auto; align-self: stretch; }
-  #dash { --u: calc((100vw - 32px - 4 * 6px) / 5); }
-  #avatar-wrap { width: 46vw; height: 34vh; margin-bottom: 0; }
-  #dash-foot { flex-wrap: wrap; gap: 12px 18px; margin-top: 2vh; }
-  #status { flex-basis: 100%; margin-left: 0; text-align: left; }
+/* ============================================================================
+   Biblioteca de jogos ("Meus jogos" do 360): faixa azul, carrossel de capas
+   ========================================================================= */
+#library {
+  --card: clamp(150px, 15.5vw, 270px);
+  position: fixed; inset: 0; z-index: 20; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #eef0f2 0%, #d9dcdf 50%, #a6aaae 100%);
+  color: #1e1e1e; user-select: none;
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  animation: lib-in .22s ease-out;
+}
+#library[hidden] { display: none; }
+@keyframes lib-in { from { opacity: 0; transform: translateX(3vw); } to { opacity: 1; transform: none; } }
+
+.lib-band {
+  position: relative; flex: none; height: 25vh; min-height: 120px;
+  background: linear-gradient(180deg, #0a4d97 0%, #1266bd 60%, #1b7dd3 100%);
+  overflow: hidden;
+}
+.lib-band::before, .lib-band::after {
+  content: ""; position: absolute; border-radius: 50%; pointer-events: none;
+  background: repeating-radial-gradient(circle, rgba(255,255,255,.13) 0 2px, transparent 2px 13px);
+  -webkit-mask: radial-gradient(circle, #000 0 55%, transparent 72%); mask: radial-gradient(circle, #000 0 55%, transparent 72%);
+}
+.lib-band::before { width: 34vh; height: 34vh; left: 14vw; top: -14vh; }
+.lib-band::after { width: 26vh; height: 26vh; right: 6vw; bottom: -6vh; }
+.lib-sort {
+  position: absolute; left: 10vw; bottom: 2.4vh; z-index: 1;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  margin: 0; padding: 4px 6px; border: 0; background: none; color: #fff; cursor: pointer; font: inherit;
+}
+.lib-sort-top { display: inline-flex; align-items: center; gap: 4px; font-size: clamp(13px, 1.2vw, 18px); font-weight: 600; }
+.lib-sort-top svg { width: 1.2em; height: 1.2em; fill: #fff; }
+.lib-sort-label { font-size: clamp(18px, 1.9vw, 30px); font-weight: 300; line-height: 1.1; }
+.lib-sort:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+.lib-strip {
+  flex: none; display: flex; align-items: flex-start; gap: clamp(8px, 1vw, 16px);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  padding: 3vh 10vw 5vh;
+  scroll-behavior: smooth;
+}
+.lib-strip::-webkit-scrollbar { display: none; }
+
+.card {
+  position: relative; flex: none; width: var(--card); margin: 0; padding: 0 8px 12px;
+  border: 0; border-radius: 0; background: #fff; color: #1e1e1e; text-align: left; font: inherit; cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.16);
+  transform-origin: 50% 0;
+  transition: transform .18s ease-out, box-shadow .18s ease-out;
+  outline: 0;
+}
+.card-badge {
+  display: flex; align-items: center; gap: 6px; height: 24px; margin: 0 -8px 8px; padding: 0 9px;
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; color: #fff;
+}
+.card-badge svg { width: 15px; height: 15px; fill: #fff; }
+.card-badge.ps2 { background: linear-gradient(90deg, #08245f, #1d4fb5 70%, #3d7ae0); }
+.card-badge.ps1 { background: linear-gradient(90deg, #6f737b, #a3a7ae 70%, #c4c7cc); }
+.card-art {
+  position: relative; aspect-ratio: 1 / .92; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; background: #8d8d8d;
+}
+.card-art > svg { width: 46%; height: 46%; fill: #fff; }
+.card-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.card-title {
+  margin-top: 8px; font-size: clamp(13px, 1.05vw, 17px); line-height: 1.25; color: #1a1a1a;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-meta { margin-top: 2px; min-height: 1.35em; padding-right: 22px; font-size: clamp(11px, .85vw, 13px); color: #5a5a5a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.stored .card-meta { color: #2c7d18; }
+.card-pad { position: absolute; right: 8px; bottom: 11px; width: 18px; height: 18px; fill: #5f5f5f; }
+.card.is-focus { transform: scale(1.12); z-index: 2; box-shadow: 0 12px 26px rgba(0,0,0,.32), 0 0 0 2px #fff; }
+.card-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; background: rgba(0,0,0,.45); display: none; }
+.card-progress i { display: block; height: 100%; width: 0; background: #3ccf3c; transition: width .2s linear; }
+.card.downloading .card-progress { display: block; }
+.card.downloading .card-art::after {
+  content: ""; position: absolute; width: 26%; aspect-ratio: 1; border-radius: 50%;
+  border: 4px solid rgba(255,255,255,.3); border-top-color: #fff; animation: spin .8s linear infinite;
+}
+
+.lib-empty {
+  margin: 6vh auto 0; max-width: 520px; padding: 0 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; color: #3a3a3a;
+}
+.lib-empty[hidden] { display: none; }
+.lib-empty svg { width: 64px; height: 64px; fill: #8d8d8d; }
+.lib-empty strong { font-size: 20px; font-weight: 400; }
+
+.lib-foot {
+  margin-top: auto; display: flex; align-items: center; gap: 1.6em; flex-wrap: wrap;
+  padding: 0 10vw 5vh; font-size: clamp(12px, 1vw, 15px); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+#lib-status { margin-left: auto; }
+#lib-status.error { color: #ffd0d0; }
+
+/* --- Telas pequenas ---------------------------------------------------------- */
+@media (max-width: 760px) {
+  #dash { --cw: calc((100vw - 32px - 4 * max(4px, 2.5vw)) / 5); --gap: max(4px, 2.5vw); --label: 10px; }
+  #dash-nav .tab { font-size: 20px; }
+  #dash-foot { flex-wrap: wrap; gap: 8px 16px; }
+  #dash-foot .hint:nth-child(2) { display: none; }
+  #dash-status { top: 14px; }
+  .lib-strip { padding: 3vh 16px 5vh; }
+  .tile > .label { font-size: 9px; }
+  .tile-info { font-size: 9px; }
+  .dark-hint, .dark-kicker, .tile-dark .dark-icon { display: none; }
+  .nfs-logo small { display: none; }
+  .lib-foot { padding: 0 16px 3vh; gap: 8px 14px; }
+  .lib-sort { left: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tile { transition: none; }
+  #dash-track, .tile, .card { transition: none; }
+  #library { animation: none; }
+  .lib-strip { scroll-behavior: auto; }
 }
