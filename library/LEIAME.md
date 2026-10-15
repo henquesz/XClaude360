@@ -59,3 +59,28 @@ cópia do jogo, que fica guardada naquele card.
 
 Arquivos grandes (jogos de PS1 em CHD costumam ter 200 a 500 MB) ficam melhor num bucket com CORS
 do que no deploy da Vercel.
+
+## Capas
+
+Imagens de sites que bloqueiam uso externo (como o CoolROM) não aparecem: o site roda com COEP `require-corp`
+e o navegador só mostra imagem de outro domínio que mande CORS ou `Cross-Origin-Resource-Policy`.
+As capas vêm do [libretro-thumbnails](https://github.com/libretro-thumbnails), o acervo do RetroArch, que manda
+esses cabeçalhos.
+
+`library/covers.json` liga cada jogo à capa de lá (`"ps1:Título": "Nome do arquivo no libretro"`). Ele é gerado
+cruzando o `games.json` com o índice do libretro, tolerando região, disco, versão e idiomas no nome:
+
+```sh
+node tools/libretro-covers.mjs
+```
+
+Rode de novo sempre que o `games.json` mudar. Jogos fora do mapa usam a imagem do próprio catálogo (que só
+aparece se estiver hospedada no site, por exemplo em `library/covers/`). Sem `covers.json`, a biblioteca tenta
+adivinhar o nome da capa (título + USA/Europe/Japan) direto no navegador.
+
+## Clique no card
+
+- Jogo já guardado no navegador: abre o jogo.
+- Catálogo com arquivo (`url` terminando em extensão de disco): baixa e abre.
+- Catálogo com página (`url` .php/.html): abre a página numa aba nova.
+- X: importa um arquivo para o card (ou remove a cópia, se já houver).

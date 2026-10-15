@@ -20,6 +20,7 @@ const PS2_ACCEPT = '.iso,.chd,.cso,.isz,.bin';
 
 // Biblioteca: catálogo do site (library/games.json) + cópias baixadas no OPFS
 const LIB_CATALOG_URL = 'library/games.json';
+const LIB_COVERS_URL = 'library/covers.json';   // gerado por tools/libretro-covers.mjs
 const LIB_FILE_PREFIX = 'lib-';    // nome do arquivo no OPFS
 const LIB_META_PREFIX = 'lib.';    // chave no localStorage
 const LIB_SORT_KEY = 'lib.sort';
@@ -91,6 +92,10 @@ const ui = {
   libSort: $('lib-sort'),
   libSortLabel: $('lib-sort-label'),
   libStatus: $('lib-status'),
+  libActA: $('lib-act-a'),
+  libActX: $('lib-act-x'),
+  libLabelA: $('lib-label-a'),
+  libLabelX: $('lib-label-x'),
 };
 
 // Estado compartilhado entre o menu, a biblioteca e os dois emuladores.
@@ -102,6 +107,7 @@ const state = {
   emulatorReady: false,
   module: null,
   catalog: [],
+  covers: null,       // { "ps1:Título": "Nome do arquivo no libretro" }, ou null sem covers.json
   background: null,   // fundo animado do menu
 };
 
@@ -958,6 +964,7 @@ function normalizeGame(raw, systemHint) {
     id, title, system, url, fileName,
     size: Number(raw.size || raw.tamanho) || 0,
     cover: CATALOG_PLACEHOLDER_COVER.test(cover) ? '' : cover,
+    page: /^https?:\/\//i.test(page) ? page : '',
     source,
   };
 }
@@ -970,6 +977,15 @@ function catalogLists(data) {
   return Object.entries(data)
     .filter(([, value]) => Array.isArray(value))
     .map(([key, value]) => [value, /ps2|playstation2/i.test(key) ? 'ps2' : /ps1|psx|psone/i.test(key) ? 'ps1' : null]);
+}
+
+async function loadCovers() {
+  try {
+    const response = await fetch(LIB_COVERS_URL, { cache: 'no-cache' });
+    if (response.ok) state.covers = await response.json();
+  } catch (err) {
+    console.warn('Mapa de capas indisponível:', err);
+  }
 }
 
 async function loadCatalog() {
@@ -1035,11 +1051,71 @@ function svgIcon(path, className) {
   return svg;
 }
 
+// Capas do acervo do RetroArch (libretro-thumbnails). O raw.githubusercontent.com responde com
+// Access-Control-Allow-Origin e Cross-Origin-Resource-Policy: cross-origin, então carrega com o COEP do site.
+const LIBRETRO_BOXARTS = {
+  ps1: 'https://raw.githubusercontent.com/libretro-thumbnails/Sony_-_PlayStation/master/Named_Boxarts/',
+  ps2: 'https://raw.githubusercontent.com/libretro-thumbnails/Sony_-_PlayStation_2/master/Named_Boxarts/',
+};
+
+function libretroName(title) {
+  // Mesmos caracteres que o RetroArch troca por "_" no nome do arquivo.
+  return title.replace(/[&*/:`<>?\\|"]/g, '_').trim();
+}
+
+function coverCandidates(entry) {
+  const urls = [];
+  const cover = entry.cover || '';
+  const sameOrigin = cover && (() => { try { return new URL(cover, location.href).origin === location.origin; } catch { return false; } })();
+  if (sameOrigin) urls.push(cover);
+  const base = LIBRETRO_BOXARTS[entry.system];
+  const mapped = state.covers && state.covers[`${entry.system}:${entry.title}`];
+  if (base && mapped) {
+    urls.push(base + encodeURIComponent(mapped) + '.png');
+  } else if (base && entry.title && !state.covers) {
+    // Sem covers.json: adivinha o nome do arquivo (título + região).
+    // Com covers.json, um jogo fora do mapa já foi procurado e não tem capa lá; não vale gastar requisições.
+    const name = libretroName(entry.title);
+    const names = /\([^)]*\)/.test(name) ? [name] : [`${name} (USA)`, `${name} (Europe)`, `${name} (Japan)`, name];
+    for (const n of names) urls.push(base + encodeURIComponent(n) + '.png');
+  }
+  if (cover && !sameOrigin) urls.push(cover);
+  return urls;
+}
+
+// Tenta cada URL até uma carregar; se nenhuma carregar, fica o ícone de controle.
+function attachCover(art, entry) {
+  const urls = coverCandidates(entry);
+  if (!urls.length) return;
+  const img = document.createElement('img');
+  img.alt = '';
+  img.loading = 'lazy';
+  img.decoding = 'async';
+  img.referrerPolicy = 'no-referrer';
+  let index = 0;
+  const load = () => {
+    const url = urls[index];
+    let crossOrigin = false;
+    try { crossOrigin = new URL(url, location.href).origin !== location.origin; } catch {}
+    if (crossOrigin) img.crossOrigin = 'anonymous';
+    else img.removeAttribute('crossorigin');
+    img.src = url;
+  };
+  img.onerror = () => {
+    index += 1;
+    if (index < urls.length) load();
+    else img.remove();
+  };
+  load();
+  art.append(img);
+}
+
 function entryMeta(entry) {
   if (entry.local) return (entry.temporary ? 'Só nesta sessão' : 'No navegador') + (entry.size ? ` · ${formatSize(entry.size)}` : '');
   if (entry.stored) return 'No navegador' + (entry.size ? ` · ${formatSize(entry.size)}` : '');
-  if (!entry.game.url) return 'Importar arquivo';
-  return 'Baixar' + (entry.size ? ` · ${formatSize(entry.size)}` : '');
+  if (entry.game.url) return 'Baixar' + (entry.size ? ` · ${formatSize(entry.size)}` : '');
+  if (entry.game.page) return 'Abrir página';
+  return 'Importar arquivo';
 }
 
 function buildCard(entry, index) {
@@ -1055,15 +1131,7 @@ function buildCard(entry, index) {
   const art = document.createElement('div');
   art.className = 'card-art';
   art.append(svgIcon(PAD_PATH));
-  if (entry.cover) {
-    const img = document.createElement('img');
-    img.alt = '';
-    img.loading = 'lazy';
-    if (new URL(entry.cover, location.href).origin !== location.origin) img.crossOrigin = 'anonymous';
-    img.onerror = () => img.remove();
-    img.src = entry.cover;
-    art.append(img);
-  }
+  attachCover(art, entry);
   const progress = document.createElement('div');
   progress.className = 'card-progress';
   progress.append(document.createElement('i'));
@@ -1093,6 +1161,7 @@ function renderLibrary(keepKey) {
   let index = keepKey ? lib.entries.findIndex((entry) => entry.key === keepKey) : -1;
   if (index < 0) index = Math.min(lib.focus, lib.entries.length - 1);
   if (index >= 0) focusCard(index, false);
+  else updateLibHints();
 }
 
 function focusCard(index, smooth = true) {
@@ -1104,6 +1173,7 @@ function focusCard(index, smooth = true) {
   const card = cards[index];
   card.classList.add('is-focus');
   card.focus({ preventScroll: true });
+  updateLibHints();
   // Como no 360: o card focado fica perto da esquerda, com o anterior aparecendo pela metade.
   const strip = ui.libStrip;
   const pad = parseFloat(getComputedStyle(strip).paddingLeft) || 0;
@@ -1223,7 +1293,44 @@ async function importEntryFile(entry, card) {
   }
 }
 
+// Rótulos do rodapé conforme o card focado: A = ação principal, X = importar ou remover.
+function updateLibHints() {
+  const entry = lib.entries[lib.focus];
+  ui.libActA.hidden = !entry;
+  ui.libActX.hidden = !entry;
+  if (!entry) return;
+  let a = 'Jogar';
+  if (!entry.local && !entry.stored) a = entry.game.url ? 'Baixar e jogar' : entry.game.page ? 'Abrir página' : 'Importar e jogar';
+  ui.libLabelA.textContent = a;
+  ui.libLabelX.textContent = entry.stored ? 'Remover do navegador' : 'Importar arquivo';
+}
+
+function openPage(url) {
+  // Sem 'noopener' no window.open: com ele o retorno é sempre null e não dá para saber se o pop-up foi bloqueado.
+  const opened = window.open(url, '_blank');
+  if (!opened) { setLibStatus('O navegador bloqueou a nova aba. Clique no card para abrir a página.', true); return; }
+  try { opened.opener = null; } catch {}
+  setLibStatus('');
+}
+
+// X: com cópia guardada remove; sem cópia, importa um arquivo para o card e já abre o jogo.
+async function secondaryEntry(entry, card) {
+  if (!entry || lib.busy) return;
+  if (entry.stored) { removeEntry(entry); return; }
+  await playEntry(entry, card, { forceImport: true });
+}
+
+// A / clique: joga o que já está no navegador, baixa se o catálogo tem arquivo, senão abre a página do jogo.
 async function activateEntry(entry, card) {
+  if (!entry || lib.busy) return;
+  if (!entry.local && !entry.stored && !entry.game.url && entry.game.page) {
+    openPage(entry.game.page);
+    return;
+  }
+  await playEntry(entry, card);
+}
+
+async function playEntry(entry, card, { forceImport = false } = {}) {
   if (!entry || lib.busy) return;
   if (entry.local) {
     lib.busy = false;
@@ -1233,7 +1340,7 @@ async function activateEntry(entry, card) {
     return;
   }
   const { game } = entry;
-  if (!entry.stored && !game.url) {
+  if (!entry.stored && (forceImport || !game.url)) {
     const result = await importEntryFile(entry, card);
     if (!result) return;
     if (result.file) {
@@ -1281,7 +1388,8 @@ function libraryKey(event) {
     case 'PageDown': focusCard(lib.focus + 5); break;
     case 'End': focusCard(lib.entries.length - 1); break;
     case 'Enter': case ' ': activateEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]); break;
-    case 'x': case 'X': case 'Delete': removeEntry(lib.entries[lib.focus]); break;
+    case 'x': case 'X': secondaryEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]); break;
+    case 'Delete': removeEntry(lib.entries[lib.focus]); break;
     case 'y': case 'Y': cycleSort(); break;
     case 'Escape': case 'Backspace': closeLibrary(); break;
     default: return false;
@@ -1343,6 +1451,10 @@ function setupInput() {
     tab.onclick = () => showPane(tab.dataset.pane);
   }
   ui.libSort.onclick = cycleSort;
+  ui.libActA.onclick = () => activateEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]);
+  ui.libActX.onclick = () => secondaryEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]);
+  $('lib-act-y').onclick = cycleSort;
+  $('lib-act-b').onclick = closeLibrary;
 
   // Controle (Gamepad API): d-pad/analógico navega, A seleciona, B volta, X remove, Y ordena, LB/RB trocam de aba.
   const held = new Set();
@@ -1370,7 +1482,7 @@ function setupInput() {
       if (move && dx) focusCard(lib.focus + dx);
       if (a) activateEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]);
       if (b) closeLibrary();
-      if (x) removeEntry(lib.entries[lib.focus]);
+      if (x) secondaryEntry(lib.entries[lib.focus], ui.libStrip.children[lib.focus]);
       if (y) cycleSort();
       if (lb) focusCard(lib.focus - 5);
       if (rb) focusCard(lib.focus + 5);
@@ -1431,6 +1543,7 @@ async function main() {
     findStoredPs1(PS1_IMAGE_FILE, PS1_IMAGE_KEY),
     findStoredPs1(PS1_BIOS_FILE, PS1_BIOS_KEY),
     loadCatalog(),
+    loadCovers(),
   ]);
   Object.assign(state, { image, ps1Game, ps1Bios });
   setImageInfo();

@@ -296,6 +296,9 @@ kbd.btn-bumper { border-radius: .35em; min-width: 2em; background: linear-gradie
   margin-top: auto; display: flex; align-items: center; gap: 1.6em; flex-wrap: wrap;
   padding: 0 10vw 5vh; font-size: clamp(12px, 1vw, 15px); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4);
 }
+.lib-foot button.hint { margin: 0; padding: 4px 6px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-shadow: inherit; cursor: pointer; }
+.lib-foot button.hint:hover { background: rgba(255,255,255,.14); }
+.lib-foot button.hint[hidden] { display: none; }
 #lib-status { margin-left: auto; }
 #lib-status.error { color: #ffd0d0; }
 
