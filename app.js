@@ -941,7 +941,8 @@ function normalizeGame(raw, systemHint) {
   if (!raw || typeof raw !== 'object') return null;
   const title = String(raw.title || raw.nome || raw.name || '').replace(CATALOG_TITLE_NOISE, '').trim();
   const system = catalogSystem(raw.system || raw.plataforma) || systemHint;
-  if (!title || !system) return null;
+  // Restos do scraping (ex.: o link "#" da navegação por letra) não têm letra nem número no título.
+  if (!title || !/[\p{L}\p{N}]/u.test(title) || !system) return null;
   const link = String(raw.arquivo || raw.url || '').trim();
   const url = isGameFile(link) ? link : '';
   const page = String(raw.pagina || raw.page || (url ? '' : link));
