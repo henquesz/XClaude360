@@ -213,6 +213,31 @@ const GAME_HINTS = {
 let packageMeta = null;
 try { packageMeta = JSON.parse(localStorage.getItem(PACKAGE_KEY) || 'null'); } catch (e) {}
 const gameHint = packageMeta && GAME_HINTS[packageMeta.boot];
+const SERIAL = /[A-Z]{4}_\d{3}\.\d{2}/;
+const packageSerial = packageMeta && SERIAL.test(packageMeta.boot || '') ? packageMeta.boot.match(SERIAL)[0] : '';
+
+// Código do jogo no disco: BOOT2 do SYSTEM.CNF na raiz da ISO 9660 (descritor primário no setor 16,
+// registro do diretório raiz no byte 156 dele). Vazio quando não dá para ler; aí nada é bloqueado.
+async function discSerial(read) {
+  const pvd = await read(16 * 2048, 2048);
+  if (String.fromCharCode(...pvd.subarray(1, 6)) !== 'CD001') return '';
+  const root = new DataView(pvd.buffer, pvd.byteOffset + 156);
+  const dir = await read(root.getUint32(2, true) * 2048, Math.min(root.getUint32(10, true), 64 * 1024));
+  for (let at = 0; at < dir.length;) {
+    const length = dir[at];
+    if (!length) { at = (Math.floor(at / 2048) + 1) * 2048; continue; }   // registros não cruzam setores
+    const name = String.fromCharCode(...dir.subarray(at + 33, at + 33 + dir[at + 32]));
+    if (/^SYSTEM\.CNF(;1)?$/i.test(name)) {
+      const entry = new DataView(dir.buffer, dir.byteOffset + at);
+      const text = new TextDecoder().decode(await read(entry.getUint32(2, true) * 2048, Math.min(entry.getUint32(10, true), 2048)));
+      const boot = text.match(/BOOT2\s*=\s*\S*/i);
+      const serial = boot && boot[0].toUpperCase().match(SERIAL);
+      return serial ? serial[0] : '';
+    }
+    at += length;
+  }
+  return '';
+}
 if (packageMeta && packageMeta.boot) {
   document.title = packageMeta.boot + ' · recomp';
   const game = document.getElementById('game');
@@ -241,6 +266,7 @@ function block(text) {
   const help = document.getElementById('help');
   help.textContent = text;
   help.hidden = false;
+  document.getElementById('tip').hidden = true;
   const start = document.getElementById('start');
   start.textContent = 'Voltar ao menu';
   start.disabled = false;
@@ -647,25 +673,39 @@ var Module = {
     for (const [key, value] of params) if (key.startsWith('PS2_')) Module.ENV[key] = value;
     Module.ENV.PS2_SCALE = scale;
     Module.addRunDependency('disc');
-    const discSize = Module.discUrl.startsWith('opfs:')
+    const opfsDisc = Module.discUrl.startsWith('opfs:');
+    const discFile = opfsDisc
       ? navigator.storage.getDirectory()
           .then((dir) => dir.getFileHandle(decodeURIComponent(Module.discUrl.slice(5))))
           .then((handle) => handle.getFile())
-          .then((file) => file.size, () => 0)
+      : null;
+    const discSize = opfsDisc
+      ? discFile.then((file) => file.size, () => 0)
       : fetch(Module.discUrl, { method: 'HEAD' }).then((r) => Number(r.headers.get('content-length')) || 0, () => 0);
-    Promise.all([discSize, chooseGpu().catch((e) => 'falha ao testar a GPU: ' + e)]).then(([size, gpu]) => {
+    const readDisc = (offset, length) => opfsDisc
+      ? discFile.then((file) => file.slice(offset, offset + length).arrayBuffer()).then((buffer) => new Uint8Array(buffer))
+      : fetch(Module.discUrl, { headers: { Range: 'bytes=' + offset + '-' + (offset + length - 1) } }).then((r) => {
+          if (r.status !== 206) throw new Error('no range support');
+          return r.arrayBuffer().then((buffer) => new Uint8Array(buffer));
+        });
+    const discGame = discSize.then((size) => (size ? discSerial(readDisc).catch(() => '') : ''));
+    Promise.all([discSize, chooseGpu().catch((e) => 'falha ao testar a GPU: ' + e), discGame]).then(([size, gpu, game]) => {
       Module.discSize = size;
       Module.gpuInfo = gpu;
       if (!size) {
-        block(Module.discUrl.startsWith('opfs:')
+        block(opfsDisc
           ? 'Nenhuma ISO de PS2 guardada neste navegador. Escolha a ISO na aba ps2 ou recomp do menu.'
           : 'Nenhuma imagem de disco em ' + Module.discUrl + '.');
+      } else if (packageSerial && game && game !== packageSerial) {
+        block('Este pacote recompilado é do jogo ' + packageSerial + ' e a ISO guardada é de outro (' + game + '). ' +
+              'O recomp não é um emulador: o pacote é o código de um jogo só, traduzido para WebAssembly, e com outro disco ele trava antes do primeiro quadro. ' +
+              'Para jogar ' + game + ' aqui, gere o pacote dele com scripts/port.sh e importe na aba recomp; ou jogue pela aba ps2.');
       } else if (Module.gpuHelp) {
         const help = document.getElementById('help');
         help.textContent = Module.gpuHelp;
         help.hidden = false;
       }
-      statusEl.textContent = (size ? 'Disco de ' + (size / 1073741824).toFixed(2).replace('.', ',') + ' GB' : 'Sem disco') + ', ' + gpu;
+      statusEl.textContent = (size ? 'Disco de ' + (size / 1073741824).toFixed(2).replace('.', ',') + ' GB' + (game ? ' (' + game + ')' : '') : 'Sem disco') + ', ' + gpu;
       Module.removeRunDependency('disc');
     });
   }],
