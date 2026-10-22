@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>recomp</title>
+<link rel="icon" href="../favicon.ico">
+<!-- Página do jogo recompilado pelo ps2-web-recomp (shell do web/shell.html, MIT). O site não hospeda o jogo:
+     ps2web.js, ps2web.wasm e ps2web.data vêm do OPFS (aba recomp do menu) e a ISO é a mesma da aba ps2. -->
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #0b0b0d; color: #d8d8dc; font: 13px "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  canvas { width: 100%; height: 100%; display: block; background: #000; }
+  #bar { display: flex; gap: 16px; align-items: center; padding: 6px 12px; background: #141418; border-top: 1px solid #222; }
+  #status { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #stats { font-variant-numeric: tabular-nums; color: #a99cff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  select { background: #2e2670; color: #fff; border: 0; padding: 5px 8px; border-radius: 4px; }
+  button { background: #2e2670; color: #fff; border: 0; padding: 6px 14px; border-radius: 4px; cursor: pointer; font: inherit; }
+  button:hover { background: #3d339a; }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); padding: 16px; }
+  #panel { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 520px; text-align: center; }
+  #game { margin: 0; font-size: 22px; font-weight: 300; color: #fff; }
+  #help { margin: 0; line-height: 1.5; color: #e8c37a; }
+  #start { padding: 10px 28px; font-size: 15px; background: #5a48e0; }
+  #start:hover:not(:disabled) { background: #6c5cf0; }
+  #start:disabled { opacity: .6; cursor: default; }
+  .controls { display: none; }
+  body.touch { overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; }
+  body.touch #stage { flex: none; width: 100%; aspect-ratio: 4 / 3; max-height: 60vh; }
+  body.touch .controls {
+    flex: 1; display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "mid mid" "left right";
+    gap: 10px 8px; align-content: center; padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    touch-action: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+    --ctl: #1d2433; --ctl-on: #4a6aa5; --ctl-line: #34405a; --ctl-text: #dfe6f3;
+  }
+  .cluster { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .cluster.left { grid-area: left; } .cluster.right { grid-area: right; }
+  .cluster.mid { grid-area: mid; flex-direction: row; gap: 10px; justify-self: center; }
+  .shoulders { display: flex; gap: 8px; width: 100%; max-width: 160px; }
+  .ctl {
+    display: flex; align-items: center; justify-content: center; color: var(--ctl-text);
+    background: var(--ctl); border: 1px solid var(--ctl-line); font-weight: 600;
+  }
+  .ctl.on, .dpad span.on { background: var(--ctl-on); }
+  .shoulder { flex: 1; height: 38px; border-radius: 12px 12px 6px 6px; }
+  .small { padding: 0 12px; height: 30px; border-radius: 15px; font-size: 12px; font-weight: 500; }
+  .face { display: grid; grid-template-columns: repeat(3, 50px); grid-template-rows: repeat(3, 50px); }
+  .face .ctl { border-radius: 50%; font-size: 20px; }
+  .face .tri { grid-area: 1 / 2; } .face .sq { grid-area: 2 / 1; }
+  .face .ci { grid-area: 2 / 3; } .face .cr { grid-area: 3 / 2; }
+  .dpad { width: 120px; height: 120px; display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); }
+  .dpad span {
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+    color: var(--ctl-text); background: var(--ctl); border: 1px solid var(--ctl-line);
+  }
+  .dpad .up { grid-area: 1 / 2; border-radius: 8px 8px 0 0; } .dpad .down { grid-area: 3 / 2; border-radius: 0 0 8px 8px; }
+  .dpad .left { grid-area: 2 / 1; border-radius: 8px 0 0 8px; } .dpad .right { grid-area: 2 / 3; border-radius: 0 8px 8px 0; }
+  .dpad .hub { grid-area: 2 / 2; }
+  .stick { position: relative; width: 120px; height: 120px; border-radius: 50%; background: var(--ctl); border: 1px solid var(--ctl-line); }
+  .knob {
+    position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px;
+    border-radius: 50%; background: var(--ctl-on); border: 1px solid var(--ctl-line);
+  }
+  body.touch.hide-controls .controls { display: none; }
+  #exit-fullscreen {
+    display: none; position: fixed; z-index: 3; top: calc(8px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right));
+    padding: 4px 10px; font-size: 12px; background: rgba(255, 255, 255, 0.15); opacity: 0.4;
+  }
+  #exit-fullscreen:hover { opacity: 0.9; }
+  body.fullscreen { background: #000; }
+  body.fullscreen #bar { display: none; }
+  body.fullscreen #exit-fullscreen { display: block; }
+  @media (max-width: 760px) { #stats { display: none; } #bar { gap: 8px; } }
+  @media (orientation: landscape) {
+    body.touch #stage { flex: 1; aspect-ratio: auto; max-height: none; }
+    body.touch .controls { position: fixed; inset: 0; display: block; padding: 0; pointer-events: none; z-index: 1;
+      --ctl: rgba(255, 255, 255, 0.12); --ctl-on: rgba(255, 255, 255, 0.45); --ctl-line: rgba(255, 255, 255, 0.28); --ctl-text: #fff; }
+    body.touch .cluster { position: absolute; top: 8px; bottom: 40px; justify-content: space-between; pointer-events: auto; opacity: 0.75; }
+    body.touch .cluster.left { left: calc(10px + env(safe-area-inset-left)); }
+    body.touch .cluster.right { right: calc(10px + env(safe-area-inset-right)); }
+    body.touch .cluster.mid { top: auto; bottom: 40px; left: 50%; transform: translateX(-50%); }
+    body.touch .dpad { width: 105px; height: 105px; grid-template-columns: repeat(3, 35px); grid-template-rows: repeat(3, 35px); }
+    body.touch .stick { width: 105px; height: 105px; }
+    body.touch .face { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
+    body.fullscreen.touch .cluster { bottom: calc(8px + env(safe-area-inset-bottom)); }
+    body.fullscreen.touch .cluster.mid { bottom: calc(8px + env(safe-area-inset-bottom)); }
+  }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="canvas" tabindex="0"></canvas></div>
+<div id="touch" class="controls" aria-hidden="true">
+  <div class="cluster left">
+    <div class="shoulders"><div class="ctl shoulder" data-btn="256">L2</div><div class="ctl shoulder" data-btn="1024">L1</div></div>
+    <div class="dpad" data-dpad>
+      <span class="up" data-dir="16">▲</span><span class="left" data-dir="128">◀</span><span class="hub"></span>
+      <span class="right" data-dir="32">▶</span><span class="down" data-dir="64">▼</span>
+    </div>
+    <div class="stick" data-stick><div class="knob" id="knob"></div></div>
+  </div>
+  <div class="cluster mid">
+    <div class="ctl small" data-btn="1">Select</div>
+    <div class="ctl small" data-btn="8">Start</div>
+  </div>
+  <div class="cluster right">
+    <div class="shoulders"><div class="ctl shoulder" data-btn="2048">R1</div><div class="ctl shoulder" data-btn="512">R2</div></div>
+    <div class="face">
+      <div class="ctl tri" data-btn="4096">△</div>
+      <div class="ctl sq" data-btn="32768">□</div>
+      <div class="ctl ci" data-btn="8192">○</div>
+      <div class="ctl cr" data-btn="16384">✕</div>
+    </div>
+  </div>
+</div>
+<div id="bar">
+  <button id="menu" type="button" title="Voltar ao menu do site">Menu</button>
+  <span id="status">Carregando…</span><span id="stats"></span>
+  <select id="scale" aria-label="Resolução" title="Resolução interna; a página recarrega para aplicar">
+    <option value="1">640×512</option>
+    <option value="2">1280×1024</option>
+    <option value="3">1920×1536</option>
+  </select>
+  <button id="controls-toggle" type="button" hidden>Esconder controles</button>
+  <button id="export-card" type="button" title="Baixa o memory card do slot 1 como arquivo .ps2">Exportar cartão</button>
+  <button id="import-card" type="button" title="Coloca um memory card .ps2 no slot 1">Importar cartão</button>
+  <input id="import-file" type="file" accept=".ps2" hidden>
+  <button id="fullscreen" type="button" title="Tela cheia (duplo clique na tela)">Tela cheia</button></div>
+<button id="exit-fullscreen" type="button">Sair da tela cheia</button>
+<div id="overlay"><div id="panel"><p id="game" hidden></p><p id="help" hidden></p><button id="start" disabled>Carregando…</button></div></div>
+<script>
+const statusEl = document.getElementById('status');
+const CARD_DIR = '/memcard', CARD_FILE = '/memcard/Mcd001.ps2', CARD_BYTES = 8650752;
+// Pacote importado na aba recomp do menu (app.js guarda os arquivos e a meta com o mesmo nome)
+const PACKAGE_DIR = 'recomp', PACKAGE_KEY = 'recomp.package';
+const PACKAGE_TYPES = { js: 'text/javascript', wasm: 'application/wasm', data: 'application/octet-stream' };
+let noteTimer = 0, noteRestore = '';
+function note(text) {
+  if (!noteTimer) noteRestore = statusEl.textContent;
+  clearTimeout(noteTimer);
+  statusEl.textContent = text;
+  noteTimer = setTimeout(() => {
+    statusEl.textContent = noteRestore;
+    noteTimer = 0;
+  }, 5000);
+}
+let cardTimer = 0;
+function storeCard(then) {
+  clearTimeout(cardTimer);
+  cardTimer = setTimeout(() => {
+    try {
+      FS.syncfs(false, (err) => {
+        if (err) console.warn('memory card: could not write browser storage', err);
+        if (then) then();
+      });
+    } catch (e) {
+      if (then) then();
+    }
+  }, 300);
+}
+document.getElementById('export-card').addEventListener('click', () => {
+  let data = null;
+  try { data = FS.readFile(CARD_FILE); } catch (e) {}
+  if (!data) {
+    note('Nada salvo no memory card ainda');
+    return;
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
+  link.download = 'Mcd001.ps2';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+});
+const importInput = document.getElementById('import-file');
+document.getElementById('import-card').addEventListener('click', () => importInput.click());
+importInput.addEventListener('change', async () => {
+  const file = importInput.files[0];
+  importInput.value = '';
+  if (!file) return;
+  if (file.size !== CARD_BYTES) {
+    note('Isso não é um memory card de PS2 de 8 MB (' + CARD_BYTES + ' bytes)');
+    return;
+  }
+  const data = new Uint8Array(await file.arrayBuffer());
+  if (new TextDecoder().decode(data.subarray(0, 28)) !== 'Sony PS2 Memory Card Format ') {
+    note('Esse arquivo não é um memory card de PS2 formatado');
+    return;
+  }
+  if (!confirm('Trocar o memory card do slot 1 por ' + file.name + '? A página recarrega para usar o novo.')) return;
+  try {
+    FS.writeFile(CARD_FILE, data);
+  } catch (e) {
+    note('Não deu para importar: ' + e.message);
+    return;
+  }
+  storeCard(() => location.reload());
+});
+const statsEl = document.getElementById('stats');
+const canvas = document.getElementById('canvas');
+const params = new URLSearchParams(location.search);
+
+let packageMeta = null;
+try { packageMeta = JSON.parse(localStorage.getItem(PACKAGE_KEY) || 'null'); } catch (e) {}
+if (packageMeta && packageMeta.boot) {
+  document.title = packageMeta.boot + ' · recomp';
+  const game = document.getElementById('game');
+  game.textContent = packageMeta.boot;
+  game.hidden = false;
+}
+
+document.getElementById('menu').addEventListener('click', () => {
+  if (Module.running && !confirm('Sair do jogo e voltar ao menu? O que não foi salvo no memory card se perde.')) return;
+  location.href = '../';
+});
+// Enter é o Start: o foco volta para o jogo depois de um botão da barra, senão Enter clicaria o botão de novo.
+document.getElementById('bar').addEventListener('click', (e) => {
+  if (Module.running && e.target.closest('button')) canvas.focus();
+});
+
+// Sem pacote, sem ISO ou sem navegador compatível o botão grande volta para o menu.
+let blocked = '';
+function block(text) {
+  blocked = text;
+  const help = document.getElementById('help');
+  help.textContent = text;
+  help.hidden = false;
+  const start = document.getElementById('start');
+  start.textContent = 'Voltar ao menu';
+  start.disabled = false;
+}
+
+function missingFeatures() {
+  const header = [0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10];
+  const accepts = (body) => {
+    try {
+      return WebAssembly.validate(new Uint8Array(header.concat([body.length + 2, 1, body.length], body)));
+    } catch (e) {
+      return false;
+    }
+  };
+  const missing = [];
+  if (!window.crossOriginIsolated) missing.push('isolamento entre origens (headers COOP e COEP)');
+  if (typeof WebAssembly.Suspending !== 'function') missing.push('WebAssembly JSPI');
+  if (!accepts([0, 0x1F, 0x40, 0, 0x0B, 0x0B])) missing.push('exceções do WebAssembly (try_table)');
+  if (!accepts([0, 0x12, 0, 0x0B])) missing.push('tail calls do WebAssembly');
+  if (!accepts([0, 0xFD, 0x0C].concat(new Array(16).fill(0), [0x1A, 0x0B]))) missing.push('SIMD do WebAssembly');
+  return missing;
+}
+const missing = missingFeatures();
+
+const touchRoot = document.getElementById('touch'), knob = document.getElementById('knob');
+let touchPad = { buttons: 0, x: 0, y: 0, stick: false };
+const fingers = new Map();
+if (matchMedia('(pointer: coarse)').matches || params.has('touch')) document.body.classList.add('touch');
+function circleOf(el) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r.width / 2 };
+}
+function onTouch(e) {
+  e.preventDefault();
+  const seen = new Set();
+  let buttons = 0, sx = 0, sy = 0, stick = false;
+  for (const t of e.touches) {
+    seen.add(t.identifier);
+    let f = fingers.get(t.identifier);
+    if (!f) {
+      const start = document.elementFromPoint(t.clientX, t.clientY);
+      const region = start && start.closest('[data-stick],[data-dpad]');
+      f = region ? { kind: region.hasAttribute('data-stick') ? 'stick' : 'dpad', el: region } : { kind: 'button' };
+      fingers.set(t.identifier, f);
+    }
+    if (f.kind === 'stick') {
+      const c = circleOf(f.el);
+      let dx = (t.clientX - c.x) / c.r, dy = (t.clientY - c.y) / c.r;
+      const len = Math.hypot(dx, dy);
+      if (len > 1) { dx /= len; dy /= len; }
+      sx = dx; sy = dy; stick = true;
+      knob.style.transform = 'translate(' + (dx * c.r * 0.6) + 'px,' + (dy * c.r * 0.6) + 'px)';
+    } else if (f.kind === 'dpad') {
+      const d = circleOf(f.el), ox = t.clientX - d.x, oy = t.clientY - d.y;
+      if (Math.hypot(ox, oy) > d.r * 0.2) {
+        const angle = Math.atan2(oy, ox) * 180 / Math.PI;
+        if (angle > -67.5 && angle < 67.5) buttons |= 0x20;
+        if (angle > 22.5 && angle < 157.5) buttons |= 0x40;
+        if (angle > 112.5 || angle < -112.5) buttons |= 0x80;
+        if (angle > -157.5 && angle < -22.5) buttons |= 0x10;
+      }
+    } else {
+      const over = document.elementFromPoint(t.clientX, t.clientY);
+      const button = over && over.closest('[data-btn]');
+      if (button && touchRoot.contains(button)) buttons |= Number(button.dataset.btn);
+    }
+  }
+  for (const id of [...fingers.keys()]) if (!seen.has(id)) fingers.delete(id);
+  if (!stick) knob.style.transform = '';
+  touchPad = { buttons, x: sx, y: sy, stick };
+  touchRoot.querySelectorAll('[data-btn]').forEach((el) => el.classList.toggle('on', (buttons & Number(el.dataset.btn)) !== 0));
+  touchRoot.querySelectorAll('[data-dir]').forEach((el) => el.classList.toggle('on', (buttons & Number(el.dataset.dir)) !== 0));
+}
+for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) touchRoot.addEventListener(type, onTouch, { passive: false });
+
+const scaleSelect = document.getElementById('scale');
+let scale = params.get('PS2_SCALE');
+if (!scale) {
+  try { scale = localStorage.getItem('ps2web-scale'); } catch (e) {}
+}
+scale = ['1', '2', '3'].includes(scale) ? scale : '1';
+scaleSelect.value = scale;
+scaleSelect.addEventListener('change', () => {
+  try { localStorage.setItem('ps2web-scale', scaleSelect.value); } catch (e) {}
+  const url = new URL(location.href);
+  url.searchParams.delete('PS2_SCALE');
+  location.href = url.href;
+});
+
+const controlsButton = document.getElementById('controls-toggle');
+let hideControls = false;
+try { hideControls = localStorage.getItem('ps2web-hide-controls') === '1'; } catch (e) {}
+function updateControls() {
+  const touch = document.body.classList.contains('touch');
+  document.body.classList.toggle('hide-controls', hideControls);
+  controlsButton.hidden = !touch;
+  controlsButton.textContent = hideControls ? 'Mostrar controles' : 'Esconder controles';
+  fitCanvas();
+}
+controlsButton.addEventListener('click', () => {
+  hideControls = !hideControls;
+  try { localStorage.setItem('ps2web-hide-controls', hideControls ? '1' : '0'); } catch (e) {}
+  updateControls();
+});
+
+function fitCanvas() {
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+  const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+    if (Module.running && Module._ps2web_resize) Module._ps2web_resize(width, height);
+  }
+}
+window.addEventListener('resize', fitCanvas);
+
+const fullscreenButton = document.getElementById('fullscreen');
+const root = document.documentElement;
+const requestFullscreen = root.requestFullscreen || root.webkitRequestFullscreen;
+const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen;
+const nativeFullscreen = () => document.fullscreenElement || document.webkitFullscreenElement;
+let fullscreen = false;
+function setFullscreen(on) {
+  fullscreen = on;
+  document.body.classList.toggle('fullscreen', on);
+  fullscreenButton.textContent = on ? 'Sair da tela cheia' : 'Tela cheia';
+  fitCanvas();
+}
+function toggleFullscreen() {
+  if (fullscreen) {
+    if (nativeFullscreen() && exitFullscreen) exitFullscreen.call(document);
+    setFullscreen(false);
+    return;
+  }
+  setFullscreen(true);
+  if (!requestFullscreen) return;
+  const result = requestFullscreen.call(root, { navigationUI: 'hide' });
+  if (result && result.then) {
+    result.then(() => {
+      if (document.body.classList.contains('touch') && screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {});
+    }).catch(() => {});
+  }
+}
+function onFullscreenChange() {
+  if (!nativeFullscreen() && fullscreen && requestFullscreen) setFullscreen(false);
+  else fitCanvas();
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+fullscreenButton.addEventListener('click', toggleFullscreen);
+document.getElementById('exit-fullscreen').addEventListener('click', toggleFullscreen);
+canvas.addEventListener('dblclick', toggleFullscreen);
+
+const workletSource = `
+class Output extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const { buffer, base } = options.processorOptions;
+    this.ring = new Uint32Array(buffer, base, 4);
+    this.capacity = this.ring[2];
+    this.samples = new Int16Array(buffer, base + 16, this.capacity * 2);
+    this.left = 0;
+    this.right = 0;
+  }
+  process(inputs, outputs) {
+    const left = outputs[0][0], right = outputs[0][1];
+    const write = Atomics.load(this.ring, 0), mask = this.capacity - 1;
+    let read = Atomics.load(this.ring, 1);
+    for (let i = 0; i < left.length; ++i) {
+      if (read !== write) {
+        const at = (read & mask) * 2;
+        this.left = this.samples[at] / 32768;
+        this.right = this.samples[at + 1] / 32768;
+        read = (read + 1) >>> 0;
+      } else {
+        this.left *= 0.995;
+        this.right *= 0.995;
+      }
+      left[i] = this.left;
+      right[i] = this.right;
+    }
+    Atomics.store(this.ring, 1, read);
+    Atomics.store(this.ring, 3, 1);
+    return true;
+  }
+}
+registerProcessor('ps2-output', Output);`;
+
+let audio = null, node = null;
+async function startAudio() {
+  audio = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+  await audio.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSource], { type: 'application/javascript' })));
+  node = new AudioWorkletNode(audio, 'ps2-output', {
+    outputChannelCount: [2],
+    processorOptions: { buffer: Module.HEAPU8.buffer, base: Module._ps2web_audio_ring() },
+  });
+  node.connect(audio.destination);
+}
+
+// Mesmas teclas da tabela de controles do menu (Play! e PCSX-ReARMed). Bits do pad do PS2:
+// 0 Select, 1 L3, 2 R3, 3 Start, 4-7 direcional, 8 L2, 9 R2, 10 L1, 11 R1, 12 △, 13 ○, 14 ✕, 15 □.
+const keys = new Set();
+const keyMap = { ArrowUp: 4, ArrowRight: 5, ArrowDown: 6, ArrowLeft: 7, KeyZ: 14, KeyX: 13, KeyA: 15, KeyS: 12,
+                 Digit1: 10, Digit2: 8, Digit3: 1, Digit8: 11, Digit9: 9, Digit0: 2, Enter: 3, Backspace: 0 };
+// analógico esquerdo F H T G, direito J L I K: [eixo lx/ly/rx/ry, direção]
+const stickKeys = { KeyF: [0, -1], KeyH: [0, 1], KeyT: [1, -1], KeyG: [1, 1],
+                    KeyJ: [2, -1], KeyL: [2, 1], KeyI: [3, -1], KeyK: [3, 1] };
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'SELECT' || e.ctrlKey || e.altKey || e.metaKey) return;
+  if (e.code in keyMap || e.code in stickKeys) { keys.add(e.code); e.preventDefault(); }
+});
+window.addEventListener('keyup', (e) => { keys.delete(e.code); });
+window.addEventListener('blur', () => keys.clear());
+const padButtons = [[0, 14], [1, 13], [2, 15], [3, 12], [4, 10], [5, 11], [6, 8], [7, 9], [8, 0], [9, 3], [10, 1], [11, 2],
+                    [12, 4], [13, 6], [14, 7], [15, 5]];
+const axis = (v) => Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+// o teclado e os controles de toque são o jogador 1 junto com o primeiro controle; um segundo controle é o jogador 2
+const players = [0, 1].map(() => ({ plugged: false, pad: -1, pressure: '', strong: 0, weak: 0, rumbleAt: 0 }));
+const motorStrength = (v) => v < 16 ? 0 : Math.sqrt(v / 255);
+function pollPlayer(port, gamepad, own) {
+  const player = players[port];
+  const plugged = port === 0 || !!gamepad;
+  if (plugged !== player.plugged) {
+    player.plugged = plugged;
+    Module._ps2web_pad_connected(port, plugged ? 1 : 0);
+  }
+  if (!plugged) return;
+  let buttons = 0;
+  const sticks = [128, 128, 128, 128];
+  const pressure = new Array(16).fill(255);
+  if (own) {
+    buttons |= touchPad.buttons;
+    for (const k of keys) {
+      if (k in keyMap) buttons |= 1 << keyMap[k];
+      else if (k in stickKeys) sticks[stickKeys[k][0]] = stickKeys[k][1] < 0 ? 0 : 255;
+    }
+    if (touchPad.stick) {
+      sticks[0] = axis(touchPad.x);
+      sticks[1] = axis(touchPad.y);
+    }
+  }
+  const full = buttons;
+  if (gamepad) {
+    for (const [index, bit] of padButtons) {
+      const b = gamepad.buttons[index];
+      if (!b || !(b.pressed || b.value > 0.05)) continue;
+      buttons |= 1 << bit;
+      if (!(full & (1 << bit))) pressure[bit] = Math.max(1, Math.round((b.value > 0 ? b.value : 1) * 255));
+    }
+    if (gamepad.axes.length >= 4) {
+      for (let i = 0; i < 4; ++i) if (sticks[i] === 128) sticks[i] = axis(gamepad.axes[i]);
+    }
+  }
+  const [lx, ly, rx, ry] = sticks;
+  const state = buttons + lx * 65536 + ly * 16777216 + rx * 4294967296 + ry * 1099511627776;
+  if (state !== player.pad) {
+    player.pad = state;
+    Module._ps2web_pad(port, buttons, lx, ly, rx, ry);
+  }
+  const packed = [0, 1, 2, 3].map((i) => pressure[i * 4] | (pressure[i * 4 + 1] << 8) | (pressure[i * 4 + 2] << 16) | (pressure[i * 4 + 3] << 24));
+  if (packed.join() !== player.pressure) {
+    player.pressure = packed.join();
+    Module._ps2web_pressure(port, packed[0], packed[1], packed[2], packed[3]);
+  }
+  const rumble = Module._ps2web_rumble(port), now = performance.now();
+  const strong = motorStrength(rumble >> 8), weak = rumble & 1;
+  const actuator = gamepad && gamepad.vibrationActuator;
+  if (actuator && (Math.abs(strong - player.strong) > 0.08 || weak !== player.weak || ((strong || weak) && now - player.rumbleAt > 100))) {
+    player.strong = strong;
+    player.weak = weak;
+    player.rumbleAt = now;
+    const done = strong || weak ? actuator.playEffect('dual-rumble', { duration: 200, weakMagnitude: weak, strongMagnitude: strong }) : actuator.reset();
+    if (done && done.catch) done.catch(() => {});
+  }
+}
+function pollInput() {
+  const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter((pad) => pad);
+  pollPlayer(0, pads[0] || null, true);
+  pollPlayer(1, pads[1] || null, false);
+}
+
+// some browsers cannot show a canvas drawn by another GPU (hybrid laptops on Linux), so each adapter draws a few test frames first
+async function canPresent(power) {
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: power });
+  if (!adapter) return null;
+  const device = await adapter.requestDevice();
+  let failed = false;
+  device.lost.then((info) => {
+    if (info.reason === 'destroyed') return;
+    failed = true;
+    console.warn('[gpu check] ' + power + ' device lost: ' + info.message);
+  });
+  device.onuncapturederror = (e) => {
+    failed = true;
+    console.warn('[gpu check] ' + power + ': ' + e.error.message);
+  };
+  const probe = document.createElement('canvas');
+  probe.width = probe.height = 64;
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none';
+  document.body.appendChild(probe);
+  try {
+    const context = probe.getContext('webgpu');
+    context.configure({ device, format: navigator.gpu.getPreferredCanvasFormat(), alphaMode: 'opaque' });
+    for (let i = 0; i < 3 && !failed; ++i) {
+      const encoder = device.createCommandEncoder();
+      encoder.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] }).end();
+      device.queue.submit([encoder.finish()]);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await device.queue.onSubmittedWorkDone();
+    }
+  } catch (e) {
+    failed = true;
+    console.warn('[gpu check] ' + power + ': ' + e);
+  }
+  probe.remove();
+  const name = [adapter.info.vendor, adapter.info.architecture].filter(Boolean).join(' ') || power;
+  device.destroy();
+  return failed ? null : name;
+}
+
+function webgpuHelp(onCpu) {
+  const firefox = navigator.userAgent.includes('Firefox/');
+  const linux = navigator.userAgent.includes('Linux') && !navigator.userAgent.includes('Android');
+  if (firefox) return 'A WebGPU está desligada neste Firefox, então o jogo usa o renderizador por software, que é lento. Ligue dom.webgpu.enabled em about:config e recarregue.';
+  if (linux && onCpu) return 'A WebGPU está rodando na CPU aqui, então o jogo fica lento. Ligue também chrome://flags/#enable-vulkan e reinicie o navegador.';
+  if (linux) return 'A WebGPU está desligada neste navegador, então o jogo usa o renderizador por software, que é lento. Ligue chrome://flags/#enable-unsafe-webgpu e chrome://flags/#enable-vulkan e reinicie o navegador.';
+  return 'Este navegador não tem WebGPU, então o jogo usa o renderizador por software, que é lento. Chrome, Edge ou Safari atualizados são bem mais rápidos.';
+}
+
+async function chooseGpu() {
+  if (!navigator.gpu) {
+    Module.gpuHelp = webgpuHelp(false);
+    return 'sem WebGPU, renderizador por software';
+  }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) {
+    Module.gpuHelp = webgpuHelp(false);
+    return 'WebGPU sem adaptador, renderizador por software';
+  }
+  if (adapter.info.isFallbackAdapter || adapter.info.architecture === 'swiftshader') Module.gpuHelp = webgpuHelp(true);
+  if (navigator.userAgent.includes('Firefox/')) {
+    Module.presentCopy = true;
+    return 'Firefox, quadros copiados para a página';
+  }
+  const forced = params.get('gpu');
+  if (forced !== 'low') {
+    const name = await canPresent('high-performance');
+    if (name) return 'GPU ' + name;
+  }
+  const name = await canPresent('low-power');
+  if (name) {
+    Module.ENV.PS2_GPU_LOW_POWER = '1';
+    return 'GPU ' + name;
+  }
+  Module.presentCopy = true;
+  return 'a GPU não consegue desenhar na página, copiando quadros';
+}
+
+let frames = 0, last = performance.now(), lastGpu = 0, lastEmuIdle = 0, lastRenderIdle = 0, lastVuIdle = 0, lastInterpreted = 0;
+let shown = 0, fresh = false;
+const countShown = () => {
+  if (fresh) ++shown;
+  fresh = false;
+  requestAnimationFrame(countShown);
+};
+requestAnimationFrame(countShown);
+var Module = {
+  canvas,
+  arguments: ['/game/core.elf'].concat(params.has('arg') ? ['--arg', params.get('arg')] : [], params.getAll('press').flatMap((p) => p.split(',').flatMap((x) => ['--press', x]))),
+  // a ISO da aba ps2 do menu (app.js guarda como nfsu2.img no OPFS); ?disc=<url> lê de um servidor com Range
+  discUrl: params.get('disc') || 'opfs:nfsu2.img',
+  stateUrl: params.get('state'),
+  noSurface: params.has('nosurface'),
+  noCard: params.has('nocard'),
+  presentCopy: params.has('copy'),
+  print: (text) => console.log(text),
+  printErr: (text) => console.log(text),
+  setStatus: (text) => {
+    if (!text || Module.gpuInfo) return;
+    const progress = text.match(/^Downloading data\.\.\. \((\d+)\/\d+\)/);
+    statusEl.textContent = progress ? 'Carregando os dados do jogo, ' + (Number(progress[1]) / 1048576).toFixed(1) + ' MB' : text;
+  },
+  onRuntimeInitialized: () => {
+    const start = document.getElementById('start');
+    if (missing.length || blocked) return;
+    start.disabled = false;
+    start.textContent = 'Jogar';
+  },
+  preRun: [() => {
+    if (!Module.noCard) {
+      try {
+        FS.mkdir(CARD_DIR);
+        FS.mount(IDBFS, {}, CARD_DIR);
+        Module.addRunDependency('card');
+        FS.syncfs(true, (err) => {
+          if (err) console.warn('memory card: could not read browser storage', err);
+          Module.removeRunDependency('card');
+        });
+      } catch (e) {
+        console.warn('memory card: browser storage is not available', e);
+      }
+    }
+    for (const [key, value] of params) if (key.startsWith('PS2_')) Module.ENV[key] = value;
+    Module.ENV.PS2_SCALE = scale;
+    Module.addRunDependency('disc');
+    const discSize = Module.discUrl.startsWith('opfs:')
+      ? navigator.storage.getDirectory()
+          .then((dir) => dir.getFileHandle(decodeURIComponent(Module.discUrl.slice(5))))
+          .then((handle) => handle.getFile())
+          .then((file) => file.size, () => 0)
+      : fetch(Module.discUrl, { method: 'HEAD' }).then((r) => Number(r.headers.get('content-length')) || 0, () => 0);
+    Promise.all([discSize, chooseGpu().catch((e) => 'falha ao testar a GPU: ' + e)]).then(([size, gpu]) => {
+      Module.discSize = size;
+      Module.gpuInfo = gpu;
+      if (!size) {
+        block(Module.discUrl.startsWith('opfs:')
+          ? 'Nenhuma ISO de PS2 guardada neste navegador. Escolha a ISO na aba ps2 ou recomp do menu.'
+          : 'Nenhuma imagem de disco em ' + Module.discUrl + '.');
+      } else if (Module.gpuHelp) {
+        const help = document.getElementById('help');
+        help.textContent = Module.gpuHelp;
+        help.hidden = false;
+      }
+      statusEl.textContent = (size ? 'Disco de ' + (size / 1073741824).toFixed(2).replace('.', ',') + ' GB' : 'Sem disco') + ', ' + gpu;
+      Module.removeRunDependency('disc');
+    });
+  }],
+  audioQueuedMs: () => Module._ps2web_audio_queued_ms(),
+  ps2CardSaved: () => storeCard(),
+  onFrame: () => {
+    pollInput();
+    ++frames;
+    fresh = true;
+    const now = performance.now();
+    if (now - last >= 1000) {
+      const gpu = Module._ps2web_gpu_ms();
+      const memory = (Module.HEAPU8.length / 1048576).toFixed(0);
+      const emuIdle = Module._ps2web_idle_ms(0), renderIdle = Module._ps2web_idle_ms(1), vuIdle = Module._ps2web_idle_ms(2), span = now - last;
+      const interpreted = Module._ps2web_vu_interpreted();
+      statsEl.textContent = 'quadro ' + Module._ps2web_frames() + '   ' + (frames * 1000 / span).toFixed(1) + ' fps (' + (shown * 1000 / span).toFixed(0) + ' na tela)   GPU ' + ((gpu - lastGpu) / span * 100).toFixed(0) +
+                            '%   ocioso emu ' + ((emuIdle - lastEmuIdle) / span * 100).toFixed(0) + '% vu ' + ((vuIdle - lastVuIdle) / span * 100).toFixed(0) +
+                            '% gs ' + ((renderIdle - lastRenderIdle) / span * 100).toFixed(0) +
+                            '%   heap ' + memory + ' MB   áudio ' + Module.audioQueuedMs().toFixed(0) + ' ms' +
+                            (interpreted > lastInterpreted ? '   vu1 interpretado ' + Math.round((interpreted - lastInterpreted) * 1000 / span) + '/s' : '');
+      lastInterpreted = interpreted;
+      lastEmuIdle = emuIdle;
+      lastRenderIdle = renderIdle;
+      lastVuIdle = vuIdle;
+      lastGpu = gpu;
+      frames = 0;
+      shown = 0;
+      last = now;
+    }
+  },
+  noInitialRun: true,
+};
+
+updateControls();
+if (missing.length) {
+  const help = document.getElementById('help');
+  help.textContent = 'Este navegador ainda não roda o jogo. Falta ' + missing.join(', ') + '. Chrome ou Edge atualizados têm tudo o que precisa.';
+  help.hidden = false;
+  document.getElementById('start').textContent = 'Navegador sem suporte';
+}
+
+document.getElementById('start').addEventListener('click', async () => {
+  if (blocked) {
+    location.href = '../';
+    return;
+  }
+  document.getElementById('overlay').remove();
+  canvas.focus();
+  fitCanvas();
+  await startAudio();
+  statusEl.textContent = 'Rodando, ' + Module.gpuInfo;
+  Module.running = true;
+  Module.callMain(Module.arguments);
+});
+
+// O pacote (ps2web.js, .wasm e .data do build web) fica no OPFS: cada arquivo vira uma blob: URL e o
+// Emscripten acha o .wasm e o .data pelo locateFile. As threads do runtime abrem a mesma URL do ps2web.js.
+async function loadPackage() {
+  const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle(PACKAGE_DIR);
+  const urls = {};
+  for (const [ext, type] of Object.entries(PACKAGE_TYPES)) {
+    const file = await (await dir.getFileHandle('ps2web.' + ext)).getFile();
+    urls[ext] = URL.createObjectURL(new Blob([file], { type }));
+  }
+  Module.locateFile = (path) => urls[path.slice(path.lastIndexOf('.') + 1)] || path;
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = urls.js;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('o ps2web.js guardado não carregou'));
+    document.body.appendChild(script);
+  });
+}
+
+if (!missing.length) {
+  statusEl.textContent = 'Abrindo o pacote recompilado…';
+  loadPackage().catch((e) => {
+    console.warn(e);
+    statusEl.textContent = 'Sem pacote recompilado';
+    block(e && e.name === 'NotFoundError'
+      ? 'Nenhum pacote recompilado neste navegador. Na aba recomp do menu, escolha ps2web.js, ps2web.wasm e ps2web.data do build do ps2-web-recomp.'
+      : 'Não deu para abrir o pacote recompilado: ' + (e && e.message || e));
+  });
+}
+</script>
+</body>
+</html>

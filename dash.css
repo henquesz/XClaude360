@@ -95,8 +95,8 @@
 }
 .tile[disabled] { cursor: default; filter: saturate(.3) brightness(.8); }
 
-.tile-bios { --green-hi: #6d6d6d; --green-lo: #4a4a4a; }
-.tile-bios.ready { --green-hi: #1aa41a; --green-lo: #0f8c0f; }
+.tile-bios, .tile-check { --green-hi: #6d6d6d; --green-lo: #4a4a4a; }
+.tile-bios.ready, .tile-check.ready { --green-hi: #1aa41a; --green-lo: #0f8c0f; }
 
 /* Tile grande "Jogar" do PS2: azul escuro do console com os quatro símbolos */
 .tile-hero { padding: 0; }
@@ -133,6 +133,17 @@
 }
 .ps1-art svg { width: 62%; height: auto; filter: drop-shadow(0 1px 0 rgba(255,255,255,.6)); }
 .ps1-word { font-size: calc(var(--cw) * .17); font-weight: 700; font-style: italic; letter-spacing: -.01em; color: #2b2b33; }
+
+/* Tile grande "Jogar" do recomp: roxo do WebAssembly com os símbolos do PS2 */
+.hero-recomp {
+  background:
+    radial-gradient(70% 60% at 30% 22%, rgba(150,130,255,.35), transparent 62%),
+    radial-gradient(60% 50% at 80% 90%, rgba(101,79,240,.25), transparent 70%),
+    linear-gradient(160deg, #4a3cc0 0%, #1f1766 50%, #06041a 100%);
+}
+.hero-recomp .ps2-art svg { filter: drop-shadow(0 0 6px rgba(170,150,255,.55)); }
+.recomp-word em { margin-left: .22em; font-size: 1em; vertical-align: 0; color: #c9c1ff; }
+.tile-info code { font-family: ui-monospace, Consolas, monospace; font-size: .95em; color: #fff; }
 
 /* Tile escuro (como o tile de anúncio do 360): imagem do jogo */
 .tile-dark {

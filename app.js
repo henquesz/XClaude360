@@ -18,6 +18,13 @@ const PS1_DATA_PATH = new URL('vendor/ejs/', location.href).pathname;
 const PS1_ACCEPT = '.chd,.pbp,.bin,.img,.iso,.cue,.zip,.7z';
 const PS2_ACCEPT = '.iso,.chd,.cso,.isz,.bin';
 
+// recomp: pacote do ps2-web-recomp (ps2web.js + .wasm + .data) guardado no OPFS e aberto pela página recomp/
+const RECOMP_DIR = 'recomp';             // pasta no OPFS, com os arquivos ps2web.js, ps2web.wasm e ps2web.data
+const RECOMP_KEY = 'recomp.package';
+const RECOMP_PARTS = ['js', 'wasm', 'data'];
+const RECOMP_SCALE_KEY = 'ps2web-scale'; // mesma chave que a página recomp/ lê
+const RECOMP_SCALES = { 1: '640×512', 2: '1280×1024', 3: '1920×1536' };
+
 // Biblioteca: catálogo do site (library/games.json) + cópias baixadas no OPFS
 const LIB_CATALOG_URL = 'library/games.json';
 const LIB_COVERS_URL = 'library/covers.json';   // gerado por tools/libretro-covers.mjs
@@ -30,7 +37,7 @@ const LIB_SORTS = [
   { key: 'navegador', label: 'no navegador' },
 ];
 
-const PANES = ['ps2', 'ps1', 'config'];
+const PANES = ['ps2', 'ps1', 'recomp', 'config'];
 
 // Fundo animado do menu (port do Gradient ASCII do React Bits): verde, discreto, atrás dos tiles.
 // Dá para ajustar ao vivo no console: nfsuBackground.update({ glyphOpacity: 0.5 })
@@ -82,6 +89,15 @@ const ui = {
   ps1Progress: $('ps1-progress'),
   ps1Bios: $('t-ps1-bios'),
   ps1BiosLabel: $('ps1-bios-label'),
+  rcPlay: $('t-rc-play'),
+  rcPlaySub: $('rc-play-sub'),
+  rcPkg: $('t-rc-pkg'),
+  rcPkgMain: $('rc-pkg-main'),
+  rcPkgHint: $('rc-pkg-hint'),
+  rcProgress: $('rc-progress'),
+  rcIso: $('t-rc-iso'),
+  rcIsoLabel: $('rc-iso-label'),
+  rcScaleLabel: $('rc-scale-label'),
   dashBg: $('dash-bg'),
   stPads: $('st-pads'),
   stGames: $('st-games'),
@@ -106,6 +122,7 @@ const state = {
   image: null,        // ISO do PS2 guardada no slot principal
   ps1Game: null,      // jogo de PS1 guardado no slot principal
   ps1Bios: null,
+  recomp: null,       // pacote do ps2-web-recomp guardado (meta do localStorage)
   emulator: null,     // Promise do módulo Play!
   emulatorReady: false,
   module: null,
@@ -141,8 +158,10 @@ function fail(text) {
   ui.dash.classList.remove('busy');
   ui.play.classList.remove('booting');
   ui.ps1Play.classList.remove('booting');
+  ui.rcPlay.classList.remove('booting');
   ui.progress.hidden = true;
   ui.ps1Progress.hidden = true;
+  ui.rcProgress.hidden = true;
   setStatus(text, true);
 }
 
@@ -335,16 +354,21 @@ async function downloadToOpfs(url, opfsName, metaKey, meta, expectedSize, onProg
   return done;
 }
 
-function pickFile(accept) {
+function pickFiles(accept, multiple = false) {
   return new Promise((resolve) => {
     ui.picker.value = '';
     ui.picker.accept = accept;
-    ui.picker.onchange = () => resolve(ui.picker.files[0] || null);
+    ui.picker.multiple = multiple;
+    ui.picker.onchange = () => resolve([...ui.picker.files]);
     // Fechar o seletor sem escolher não dispara "change"; libera a promise quando a janela recupera o foco.
-    const onFocus = () => setTimeout(() => { window.removeEventListener('focus', onFocus); resolve(ui.picker.files[0] || null); }, 500);
+    const onFocus = () => setTimeout(() => { window.removeEventListener('focus', onFocus); resolve([...ui.picker.files]); }, 500);
     window.addEventListener('focus', onFocus);
     ui.picker.click();
   });
+}
+
+function pickFile(accept) {
+  return pickFiles(accept).then((files) => files[0] || null);
 }
 
 // --- PS2: imagem do NFSU2 ---------------------------------------------------
@@ -404,6 +428,123 @@ async function acceptPs1File(file, opfsName, metaKey, progress, onProgress, what
     ui.dash.classList.remove('busy');
   }
   return { file, name: file.name, size: file.size, temporary: true };
+}
+
+// --- recomp: pacote do ps2-web-recomp -----------------------------------------
+// O pacote é o código do jogo traduzido para WebAssembly, então fica só no OPFS deste navegador, como as
+// ISOs: o site não hospeda jogo nenhum. A página recomp/ carrega os três arquivos daqui.
+
+function recompParts(files) {
+  const parts = {};
+  for (const file of files) {
+    const ext = extensionOf(file.name).slice(1);
+    if (RECOMP_PARTS.includes(ext)) parts[ext] = file;
+  }
+  return parts;
+}
+
+function recompTitle(meta) {
+  return meta.boot || 'pacote recompilado';
+}
+
+// Confere que os arquivos são um build web do ps2-web-recomp e devolve o executável que ele inicia
+// (boot.txt dentro do .data, ex. "cdrom0:\SLUS_210.65;1"); o ps2web.js diz em que trecho do .data ele está.
+async function inspectRecomp(parts) {
+  const missing = RECOMP_PARTS.filter((ext) => !parts[ext]).map((ext) => 'ps2web.' + ext);
+  if (missing.length) throw new Error(`Faltou ${missing.join(' e ')}. Escolha os três arquivos juntos.`);
+  const script = await parts.js.text();
+  if (!script.includes('_ps2web_pad')) throw new Error(`${parts.js.name} não é um build web do ps2-web-recomp.`);
+  const magic = new Uint8Array(await parts.wasm.slice(0, 4).arrayBuffer());
+  if (String.fromCharCode(...magic) !== '\0asm') throw new Error(`${parts.wasm.name} não é um arquivo WebAssembly.`);
+  const packageSize = script.match(/remote_package_size:(\d+)/);
+  if (packageSize && Number(packageSize[1]) !== parts.data.size) {
+    throw new Error(`${parts.data.name} não é do mesmo build que ${parts.js.name}.`);
+  }
+  const boot = script.match(/filename:"\/game\/boot\.txt",start:(\d+),end:(\d+)/);
+  const text = boot ? (await parts.data.slice(Number(boot[1]), Number(boot[2])).text()).trim() : '';
+  const serial = text.match(/[A-Z]{4}_\d{3}\.\d{2}/);
+  return serial ? serial[0] : text;
+}
+
+async function storeRecomp(parts, boot) {
+  const root = await opfsRoot();
+  if (!root) throw new Error('Este navegador não consegue guardar arquivos (OPFS indisponível).');
+  const sizes = Object.fromEntries(RECOMP_PARTS.map((ext) => [ext, parts[ext].size]));
+  const total = RECOMP_PARTS.reduce((sum, ext) => sum + sizes[ext], 0);
+  if (!(await ensureSpace(total))) throw new Error(`Sem espaço no navegador para ${formatSize(total)}.`);
+
+  localStorage.removeItem(RECOMP_KEY);
+  try { await root.removeEntry(RECOMP_DIR, { recursive: true }); } catch {}
+  const dir = await root.getDirectoryHandle(RECOMP_DIR, { create: true });
+  let done = 0;
+  ui.rcProgress.hidden = false;
+  try {
+    for (const ext of RECOMP_PARTS) {
+      ui.rcPkgMain.textContent = `Guardando no navegador… ${Math.floor((done / total) * 100)}%`;
+      const writable = await (await dir.getFileHandle('ps2web.' + ext, { create: true })).createWritable();
+      try {
+        await writable.write(parts[ext]);
+        await writable.close();
+      } catch (err) {
+        try { await writable.abort(); } catch {}
+        throw err;
+      }
+      done += sizes[ext];
+      ui.rcProgress.value = done / total;
+    }
+  } catch (err) {
+    try { await root.removeEntry(RECOMP_DIR, { recursive: true }); } catch {}
+    throw err;
+  } finally {
+    ui.rcProgress.hidden = true;
+  }
+  const meta = { boot, size: total, sizes, stored: Date.now() };
+  localStorage.setItem(RECOMP_KEY, JSON.stringify(meta));
+  return meta;
+}
+
+async function findStoredRecomp() {
+  const meta = readMeta(RECOMP_KEY);
+  const root = await opfsRoot();
+  if (!meta || !meta.sizes || !root) return null;
+  try {
+    const dir = await root.getDirectoryHandle(RECOMP_DIR);
+    for (const ext of RECOMP_PARTS) {
+      const file = await (await dir.getFileHandle('ps2web.' + ext)).getFile();
+      if (file.size !== meta.sizes[ext]) return null;
+    }
+    return meta;
+  } catch {
+    return null;
+  }
+}
+
+async function forgetRecomp() {
+  localStorage.removeItem(RECOMP_KEY);
+  const root = await opfsRoot();
+  if (root) {
+    try { await root.removeEntry(RECOMP_DIR, { recursive: true }); } catch {}
+  }
+}
+
+// O recomp lê a imagem como ISO crua (setores de 2048 bytes) direto do OPFS: CHD, CSO e afins não servem,
+// e uma ISO que só está na memória desta aba não chega à página recomp/.
+function recompDiscProblem(image) {
+  if (!image) return 'Escolha a ISO do jogo primeiro (é a mesma da aba ps2).';
+  if (image.temporary) return 'A ISO não coube no navegador, e o recomp só lê a ISO guardada.';
+  if (extensionOf(image.bootName || image.name) !== '.iso') return `O recomp só lê ISO, e ${image.name} não é .iso.`;
+  return '';
+}
+
+function recompScale() {
+  let value = null;
+  try { value = localStorage.getItem(RECOMP_SCALE_KEY); } catch {}
+  return RECOMP_SCALES[value] ? value : '1';
+}
+
+function cycleRecompScale() {
+  try { localStorage.setItem(RECOMP_SCALE_KEY, String((Number(recompScale()) % 3) + 1)); } catch {}
+  setRecompInfo();
 }
 
 // ---------------------------------------------------------------------------
@@ -733,6 +874,50 @@ async function choosePs1Bios(file) {
   focusTile(ui.ps1Play);
 }
 
+// O recomp roda na página recomp/: o runtime tem o próprio Module do Emscripten, canvas WebGPU e áudio.
+async function bootRecomp() {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!state.recomp) { await chooseRecomp(); if (!state.recomp) return; }
+  if (!state.image) { await chooseImage(); focusTile(ui.rcPlay); }
+  const problem = recompDiscProblem(state.image);
+  if (problem) { setStatus(problem, true); return; }
+  ui.dash.classList.add('busy');
+  ui.rcPlay.classList.add('booting');
+  setStatus('Abrindo o recomp…');
+  location.href = 'recomp/';
+}
+
+async function chooseRecomp(files) {
+  if (ui.dash.classList.contains('busy')) return;
+  if (!files) files = await pickFiles('.js,.wasm,.data', true);
+  if (!files.length) return;
+  const parts = recompParts(files);
+  let boot;
+  try {
+    boot = await inspectRecomp(parts);
+  } catch (err) {
+    setStatus(err.message, true);
+    return;
+  }
+  const current = state.recomp;
+  if (current && !confirm(`Trocar o pacote guardado (${recompTitle(current)}) por ${boot || parts.js.name}?`)) return;
+  ui.dash.classList.add('busy');
+  ui.rcPkg.classList.remove('ready');
+  ui.rcPkgHint.textContent = RECOMP_PARTS.map((ext) => parts[ext].name).join(' · ');
+  try {
+    state.recomp = await storeRecomp(parts, boot);
+    setStatus(`Pacote recompilado guardado (${formatSize(state.recomp.size)}).`);
+  } catch (err) {
+    console.warn(err);
+    state.recomp = await findStoredRecomp();
+    setStatus('Não deu para guardar o pacote no navegador: ' + (err && err.message || err), true);
+  } finally {
+    ui.dash.classList.remove('busy');
+    setRecompInfo();
+  }
+  focusTile(ui.rcPlay);
+}
+
 // ---------------------------------------------------------------------------
 // Dashboard: abas, foco e navegação
 
@@ -854,6 +1039,7 @@ function setImageInfo() {
     ui.isoHint.textContent = 'Arraste a ISO aqui ou clique para escolher (ISO, CHD, CSO, ISZ ou BIN)';
     ui.playSub.textContent = 'Escolha a ISO primeiro';
   }
+  setRecompInfo();   // a aba recomp usa a mesma ISO
 }
 
 function setPs1Info() {
@@ -879,6 +1065,26 @@ function setPs1Info() {
     ui.ps1Bios.title = 'Arquivo de 512 KB do console, ex. scph5501.bin';
   }
   ui.ps1PlaySub.textContent = !game ? 'Escolha o jogo primeiro' : baseName(game.name) + (bios ? '' : ' · sem BIOS');
+}
+
+function setRecompInfo() {
+  const pkg = state.recomp;
+  const { image } = state;
+  const disc = recompDiscProblem(image);
+  if (pkg) {
+    ui.rcPkg.classList.add('ready');
+    ui.rcPkgMain.textContent = recompTitle(pkg);
+    ui.rcPkgHint.textContent = `Guardado no navegador · ${formatSize(pkg.size)} · clique para trocar`;
+  } else {
+    ui.rcPkg.classList.remove('ready');
+    ui.rcPkgMain.textContent = 'Nenhum pacote';
+    ui.rcPkgHint.textContent = 'Arraste ou escolha ps2web.js, ps2web.wasm e ps2web.data, da pasta build/web-<jogo> do ps2-web-recomp';
+  }
+  ui.rcIso.classList.toggle('ready', !disc);
+  ui.rcIsoLabel.textContent = !image ? 'ISO: escolher' : `ISO ${disc ? '✗' : '✓'} ${baseName(image.name)}`;
+  ui.rcIso.title = disc || 'A mesma ISO da aba ps2 · clique para trocar';
+  ui.rcPlaySub.textContent = !pkg ? 'Importe o pacote primeiro' : disc ? 'Falta a ISO' : recompTitle(pkg);
+  ui.rcScaleLabel.textContent = `Resolução · ${RECOMP_SCALES[recompScale()]}`;
 }
 
 async function refreshStorage() {
@@ -1533,6 +1739,7 @@ async function main() {
     fail('O servidor não enviou os headers COOP/COEP. Sem eles o emulador não roda.');
     ui.play.disabled = true;
     ui.ps1Play.disabled = true;
+    ui.rcPlay.disabled = true;
     return;
   }
   if (typeof OffscreenCanvas === 'undefined' || !('transferToImageBitmap' in OffscreenCanvas.prototype)) {
@@ -1553,14 +1760,15 @@ async function main() {
     .catch((err) => { console.error(err); setStatus('Erro ao carregar o emulador: ' + (err && err.message || err), true); });
 
   setStatus('Carregando o emulador…');
-  const [image, ps1Game, ps1Bios] = await Promise.all([
+  const [image, ps1Game, ps1Bios, recomp] = await Promise.all([
     findStoredImage(),
     findStoredPs1(PS1_IMAGE_FILE, PS1_IMAGE_KEY),
     findStoredPs1(PS1_BIOS_FILE, PS1_BIOS_KEY),
+    findStoredRecomp(),
     loadCatalog(),
     loadCovers(),
   ]);
-  Object.assign(state, { image, ps1Game, ps1Bios });
+  Object.assign(state, { image, ps1Game, ps1Bios, recomp });
   setImageInfo();
   setPs1Info();
   updateCounts();
@@ -1624,30 +1832,56 @@ async function main() {
     setPs1Info();
   };
 
+  // --- recomp ---
+  ui.rcPlay.onclick = bootRecomp;
+  ui.rcPkg.onclick = () => chooseRecomp();
+  ui.rcIso.onclick = async () => { await chooseImage(); focusTile(ui.rcIso); };
+  $('t-rc-scale').onclick = cycleRecompScale;
+  $('t-rc-help').onclick = () => showPane('config');
+  $('t-rc-forget').onclick = async () => {
+    const pkg = state.recomp;
+    if (!pkg) { chooseRecomp(); return; }
+    if (!confirm(`Apagar o pacote recompilado (${recompTitle(pkg)}) do navegador? A ISO e os saves ficam.`)) return;
+    await forgetRecomp();
+    state.recomp = null;
+    setRecompInfo();
+  };
+  // Voltar da página recomp/ pelo botão do navegador pode restaurar o menu do cache ainda "abrindo".
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    ui.dash.classList.remove('busy');
+    ui.rcPlay.classList.remove('booting');
+    setStatus('Pronto. Aperte Jogar.');
+  });
+
   // --- configurações ---
   $('t-cfg-fullscreen').onclick = toggleFullscreen;
   $('t-cfg-stretch').onclick = toggleStretch;
   $('t-cfg-storage').onclick = () => openLibrary(null);
 
   // Arrastar um arquivo para qualquer lugar do menu cai no tile certo da aba aberta.
-  // Na aba ps1, um arquivo de exatamente 512 KB é tratado como BIOS.
-  const dropTarget = () => (currentPane() === 'ps1' ? ui.ps1Iso : ui.iso);
+  // Na aba ps1, um arquivo de exatamente 512 KB é tratado como BIOS. Na aba recomp, os arquivos do
+  // pacote (.js, .wasm, .data) vão para o pacote e uma ISO vai para o slot do ps2.
+  const dropTarget = () => ({ ps1: ui.ps1Iso, recomp: ui.rcPkg })[currentPane()] || ui.iso;
+  const clearDrag = () => { for (const tile of [ui.iso, ui.ps1Iso, ui.rcPkg]) tile.classList.remove('drag'); };
   let dragDepth = 0;
   ui.dash.addEventListener('dragenter', (event) => { event.preventDefault(); dragDepth++; dropTarget().classList.add('drag'); });
   ui.dash.addEventListener('dragover', (event) => { event.preventDefault(); });
   ui.dash.addEventListener('dragleave', () => {
-    if (--dragDepth <= 0) { dragDepth = 0; ui.iso.classList.remove('drag'); ui.ps1Iso.classList.remove('drag'); }
+    if (--dragDepth <= 0) { dragDepth = 0; clearDrag(); }
   });
   ui.dash.addEventListener('drop', (event) => {
     event.preventDefault();
     dragDepth = 0;
-    ui.iso.classList.remove('drag');
-    ui.ps1Iso.classList.remove('drag');
-    const file = event.dataTransfer.files[0];
+    clearDrag();
+    const files = [...event.dataTransfer.files];
+    const file = files[0];
     if (!file) return;
     if (currentPane() === 'ps1') {
       if (file.size === PS1_BIOS_SIZE) choosePs1Bios(file);
       else choosePs1Game(file);
+    } else if (currentPane() === 'recomp' && Object.keys(recompParts(files)).length) {
+      chooseRecomp(files);
     } else {
       chooseImage(file);
     }
