@@ -24,6 +24,7 @@
   #panel { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 520px; text-align: center; }
   #game { margin: 0; font-size: 22px; font-weight: 300; color: #fff; }
   #help { margin: 0; line-height: 1.5; color: #e8c37a; }
+  #tip { margin: 0; line-height: 1.5; color: #c9c1ff; }
   #start { padding: 10px 28px; font-size: 15px; background: #5a48e0; }
   #start:hover:not(:disabled) { background: #6c5cf0; }
   #start:disabled { opacity: .6; cursor: default; }
@@ -129,7 +130,7 @@
   <input id="import-file" type="file" accept=".ps2" hidden>
   <button id="fullscreen" type="button" title="Tela cheia (duplo clique na tela)">Tela cheia</button></div>
 <button id="exit-fullscreen" type="button">Sair da tela cheia</button>
-<div id="overlay"><div id="panel"><p id="game" hidden></p><p id="help" hidden></p><button id="start" disabled>Carregando…</button></div></div>
+<div id="overlay"><div id="panel"><p id="game" hidden></p><p id="tip" hidden></p><p id="help" hidden></p><button id="start" disabled>Carregando…</button></div></div>
 <script>
 const statusEl = document.getElementById('status');
 const CARD_DIR = '/memcard', CARD_FILE = '/memcard/Mcd001.ps2', CARD_BYTES = 8650752;
@@ -201,13 +202,27 @@ const statsEl = document.getElementById('stats');
 const canvas = document.getElementById('canvas');
 const params = new URLSearchParams(location.search);
 
+// Dicas por jogo, pelo executável do pacote. NFSU2: as telas entre a abertura e a garagem (título e
+// memory card) saem pretas neste port, igual no build nativo, mas respondem ao ✕.
+const GAME_HINTS = {
+  'SLUS_210.65': {
+    tip: 'Depois da abertura a tela fica preta por uns 30 segundos. Aperte ✕ (Z no teclado, A no controle de Xbox) algumas vezes até a garagem aparecer: Start (Enter) não passa dessas telas.',
+    status: 'Tela preta? Aperte ✕ (Z) algumas vezes',
+  },
+};
 let packageMeta = null;
 try { packageMeta = JSON.parse(localStorage.getItem(PACKAGE_KEY) || 'null'); } catch (e) {}
+const gameHint = packageMeta && GAME_HINTS[packageMeta.boot];
 if (packageMeta && packageMeta.boot) {
   document.title = packageMeta.boot + ' · recomp';
   const game = document.getElementById('game');
   game.textContent = packageMeta.boot;
   game.hidden = false;
+}
+if (gameHint) {
+  const tip = document.getElementById('tip');
+  tip.textContent = gameHint.tip;
+  tip.hidden = false;
 }
 
 document.getElementById('menu').addEventListener('click', () => {
@@ -701,7 +716,7 @@ document.getElementById('start').addEventListener('click', async () => {
   canvas.focus();
   fitCanvas();
   await startAudio();
-  statusEl.textContent = 'Rodando, ' + Module.gpuInfo;
+  statusEl.textContent = (gameHint ? gameHint.status + ' · ' : '') + 'Rodando, ' + Module.gpuInfo;
   Module.running = true;
   Module.callMain(Module.arguments);
 });
